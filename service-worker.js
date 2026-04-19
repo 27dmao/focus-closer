@@ -230,8 +230,7 @@ function popupRendererSource() {
     }
 
     if (isUserFlag) {
-      actions.appendChild(mkBtn("Undo", { action: "undo_user_flag", videoId: detail.videoId, url: detail.url }, true));
-      if (detail.channel) actions.appendChild(mkBtn(`Always block "${detail.channel}"`, { action: "always_block_channel", channel: detail.channel }));
+      actions.appendChild(mkBtn("Undo", { action: "undo_user_flag", videoId: detail.videoId, url: detail.url, channel: detail.channelAutoBlocked ? detail.channel : null }, true));
     } else if (isYt) {
       actions.appendChild(mkBtn("Reopen (false positive)", { action: "reopen_video", videoId: detail.videoId, url: detail.url }, true));
       if (detail.channel) {
@@ -432,6 +431,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (p.videoId) {
           await removeVideoUserBlock(p.videoId);
           await addVideoOverride(p.videoId);
+        }
+        // If the flag auto-blocked the channel, undo that too.
+        if (p.channel) {
+          const settings = await getSync();
+          const list = (settings.channelBlocklist || []).filter((c) => c !== p.channel);
+          await setSync({ channelBlocklist: list });
         }
         if (p.url) await chrome.tabs.create({ url: p.url });
       } else if (p.action === "reopen_once") {
@@ -693,13 +698,34 @@ chrome.commands.onCommand.addListener(async (command) => {
     const hostname = hostnameFromUrl(tab.url);
 
     let meta = {};
+    let channelAutoBlocked = false;
     if (parsed) {
       try {
         const resp = await chrome.tabs.sendMessage(tab.id, { type: "yt_get_meta" });
         if (resp?.meta) meta = resp.meta;
       } catch {}
       await addVideoUserBlock(parsed.videoId);
+
+      // Generalize: if we know the channel and it isn't already on the blocklist,
+      // add it. One flag of a Dream Minecraft video should kill all Dream videos.
+      if (meta.channel) {
+        const settings = await getSync();
+        const list = settings.channelBlocklist || [];
+        if (!list.includes(meta.channel)) {
+          list.push(meta.channel);
+          await setSync({ channelBlocklist: list });
+          channelAutoBlocked = true;
+        }
+      }
     }
+
+    const reason = !parsed
+      ? "you flagged this tab as distracting"
+      : channelAutoBlocked
+        ? `flagged — also blocked channel "${meta.channel}". Undo to revert both.`
+        : meta.channel
+          ? `flagged — channel "${meta.channel}" already on blocklist`
+          : "you flagged this video — won't reopen unless you Undo";
 
     await logDecision({
       kind: "user_flag",
@@ -710,7 +736,7 @@ chrome.commands.onCommand.addListener(async (command) => {
       channel: meta.channel,
       lengthSeconds: meta.lengthSeconds || 0,
       verdict: "unproductive",
-      reason: "manually flagged by user",
+      reason: channelAutoBlocked ? `manually flagged by user (auto-blocked channel "${meta.channel}")` : "manually flagged by user",
       source: "user_flag"
     });
 
@@ -720,8 +746,9 @@ chrome.commands.onCommand.addListener(async (command) => {
       url: tab.url,
       title: meta.title || tab.title,
       channel: meta.channel,
+      channelAutoBlocked,
       lengthSeconds: meta.lengthSeconds || 0,
-      reason: parsed ? "you flagged this video — won't reopen unless you Undo" : "you flagged this tab as distracting"
+      reason
     });
     return;
   }
