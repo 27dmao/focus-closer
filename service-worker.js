@@ -352,7 +352,7 @@ async function pickPopupTabId(excludeTabId) {
 }
 
 function popupRendererSource() {
-  return function renderPopup(detail) {
+  return function renderPopup(detail, nonce) {
     const EXISTING_ID = "__focus_closer_popup__";
     const prev = document.getElementById(EXISTING_ID);
     if (prev) prev.remove();
@@ -437,7 +437,7 @@ function popupRendererSource() {
       b.addEventListener("mousedown", () => { b.style.transform = "scale(0.96)"; });
       b.addEventListener("mouseup", () => { b.style.transform = "scale(1)"; });
       b.addEventListener("click", () => {
-        chrome.runtime.sendMessage({ type: "popup_action", payload });
+        chrome.runtime.sendMessage({ type: "popup_action", payload, nonce });
         cleanup();
       });
       return b;
@@ -523,15 +523,17 @@ async function showPopup(excludeTabId, detail) {
     } catch {}
     return;
   }
+  const nonce = _issuePopupNonce(targetId);
   try {
     await chrome.scripting.executeScript({
       target: { tabId: targetId },
       func: popupRendererSource(),
-      args: [detail],
+      args: [detail, nonce],
       world: "ISOLATED"
     });
   } catch (e) {
     console.warn("[focus-closer] popup inject failed", e);
+    _popupNonces.delete(targetId);
   }
 }
 
@@ -621,6 +623,50 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
+// ─── Sender validation ───────────────────────────────────────────────────────
+// Content scripts on attacker-controlled pages can call any chrome.runtime
+// message handler. We validate sender by category:
+//   - extension-only: caller must be our own extension page (no sender.tab,
+//     and sender.id matches our extension)
+//   - content-script + hostname-bound: sender.tab.url's hostname must match
+//     the hostname in the message payload
+//   - popup-action: caller must include the single-use nonce we generated when
+//     injecting the popup into that specific tab
+function isExtensionOriginated(sender) {
+  // Messages from extension pages (options, popup) have no sender.tab and
+  // sender.url starts with chrome-extension://<our-id>/
+  if (sender?.tab) return false;
+  if (sender?.id !== chrome.runtime.id) return false;
+  return typeof sender.url === "string" && sender.url.startsWith(`chrome-extension://${chrome.runtime.id}/`);
+}
+
+function senderHostname(sender) {
+  try { return new URL(sender?.tab?.url || "").hostname.toLowerCase(); } catch { return null; }
+}
+
+function hostnameMatches(sender, claimed) {
+  if (!claimed) return false;
+  const h = senderHostname(sender);
+  if (!h) return false;
+  return h === String(claimed).toLowerCase();
+}
+
+// Single-use nonces for the injected popup. Map<tabId, nonce>; cleared on
+// use or after a 60s timeout.
+const _popupNonces = new Map();
+function _issuePopupNonce(tabId) {
+  const nonce = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : (Math.random().toString(36).slice(2) + Date.now().toString(36));
+  _popupNonces.set(tabId, nonce);
+  setTimeout(() => { if (_popupNonces.get(tabId) === nonce) _popupNonces.delete(tabId); }, 60_000);
+  return nonce;
+}
+function _consumePopupNonce(tabId, nonce) {
+  if (!tabId || !nonce) return false;
+  if (_popupNonces.get(tabId) !== nonce) return false;
+  _popupNonces.delete(tabId);
+  return true;
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "yt_metadata") {
     (async () => {
@@ -659,6 +705,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "popup_action") {
+    // Single-use nonce: only the popup we just injected into this exact tab
+    // can act on these privileged actions.
+    if (!_consumePopupNonce(sender?.tab?.id, msg.nonce)) {
+      sendResponse({ ok: false, error: "invalid_nonce" });
+      return true;
+    }
     (async () => {
       const p = msg.payload || {};
       if (p.action === "reopen_video") {
@@ -753,6 +805,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "get_indicator_state") {
+    // Indicator content script asks about its own host — verify the claimed
+    // hostname matches the sender's tab URL.
+    if (!hostnameMatches(sender, msg.hostname)) {
+      sendResponse({ ok: false, error: "hostname_mismatch" });
+      return true;
+    }
     (async () => {
       const hostname = msg.hostname || "";
       if (!hostname) { sendResponse({ ok: false }); return; }
@@ -777,24 +835,32 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "dismiss_indicator") {
+    // Indicator content script dismisses its own dot — must match sender host.
+    if (!hostnameMatches(sender, msg.hostname)) {
+      sendResponse({ ok: false, error: "hostname_mismatch" });
+      return true;
+    }
     (async () => {
-      if (msg.hostname) await dismissDomainIndicator(msg.hostname);
+      await dismissDomainIndicator(msg.hostname);
       sendResponse({ ok: true });
     })();
     return true;
   }
 
   if (msg?.type === "reset_dismissed_domains") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => { await resetDismissedDomains(); sendResponse({ ok: true }); })();
     return true;
   }
 
   if (msg?.type === "end_training_mode") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => { await endTrainingModeEarly(); sendResponse({ ok: true }); })();
     return true;
   }
 
   if (msg?.type === "clear_domain_verdict_cache") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       const removed = await clearDomainVerdictCache();
       sendResponse({ ok: true, removed });
@@ -803,6 +869,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "keep_domain_open") {
+    // Top-level keep_domain_open is for the options page only (not the popup —
+    // popup uses popup_action which has its own nonce-based path).
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       if (msg.hostname) await setDomainKeepOpen(msg.hostname, msg.durationMs ?? null);
       sendResponse({ ok: true });
