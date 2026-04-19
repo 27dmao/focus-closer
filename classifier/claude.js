@@ -2,7 +2,7 @@ import { DEFAULT_MODEL } from "../lib/pricing.js";
 import { logUsage } from "../lib/usage.js";
 
 const ENDPOINT = "https://api.anthropic.com/v1/messages";
-const MAX_TOKENS = 200;
+const MAX_TOKENS = 300; // 200 was tight enough that verbose reasons truncated, killing JSON.parse
 
 // ─── Concurrency + rate limiting ─────────────────────────────────────────────
 // Without these guards, opening many YouTube tabs at once (or rapid SPA route

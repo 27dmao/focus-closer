@@ -18,7 +18,7 @@ import { logUsage } from "../lib/usage.js";
 import { DEFAULT_MODEL } from "../lib/pricing.js";
 
 const ENDPOINT = "https://api.anthropic.com/v1/messages";
-const MAX_TOKENS = 200;
+const MAX_TOKENS = 300;
 
 // ─── Claude call rate limiting ───────────────────────────────────────────────
 // Restoring a session or opening many tabs at once must not fan out to N

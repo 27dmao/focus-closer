@@ -19,8 +19,7 @@
     "idle"
   ],
   "host_permissions": [
-    "<all_urls>",
-    "https://api.anthropic.com/*"
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "service-worker.js",
@@ -64,7 +63,7 @@
         "default": "Ctrl+Shift+X",
         "mac": "Command+Shift+X"
       },
-      "description": "Mark distracting: close + auto-block the channel (and undo not possible)"
+      "description": "Mark distracting: close + auto-block the channel (Undo via the recovery popup that appears)"
     },
     "mark-productive": {
       "suggested_key": {
