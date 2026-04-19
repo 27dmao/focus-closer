@@ -103,6 +103,86 @@ async function refreshStatusBar() {
   }
 }
 
+function renderSuggestions(suggestions) {
+  const card = $("suggestionsCard");
+  const host = $("suggestions");
+  host.innerHTML = "";
+  const shown = (suggestions || []).filter((s) => s.kind !== "info");
+  if (shown.length === 0) {
+    card.classList.add("hidden");
+    return;
+  }
+  card.classList.remove("hidden");
+  for (const s of shown) {
+    const item = document.createElement("div");
+    item.className = "suggestion";
+    const title = document.createElement("div");
+    title.className = "suggestion-title";
+    title.textContent = s.title;
+    const body = document.createElement("div");
+    body.className = "suggestion-body";
+    body.textContent = s.body;
+    item.appendChild(title);
+    item.appendChild(body);
+    if (s.action) {
+      const actions = document.createElement("div");
+      actions.className = "suggestion-actions";
+      const apply = document.createElement("button");
+      apply.className = "btn-tiny";
+      apply.textContent = "Apply";
+      apply.addEventListener("click", async () => {
+        await send("apply_suggestion", { action: s.action });
+        refreshDashboard();
+      });
+      const dismiss = document.createElement("button");
+      dismiss.className = "btn-tiny ghost";
+      dismiss.textContent = "Dismiss";
+      dismiss.addEventListener("click", () => item.remove());
+      actions.appendChild(apply);
+      actions.appendChild(dismiss);
+      item.appendChild(actions);
+    }
+    host.appendChild(item);
+  }
+}
+
+function renderHeatmap(grid) {
+  const host = $("heatmap");
+  host.innerHTML = "";
+  if (!grid || grid.length === 0) return;
+  const max = Math.max(1, ...grid.flat());
+  // Header row
+  const spacer = document.createElement("div");
+  spacer.className = "h-col-label";
+  host.appendChild(spacer);
+  for (let h = 0; h < 24; h++) {
+    const lab = document.createElement("div");
+    lab.className = "h-col-label";
+    lab.textContent = h % 6 === 0 ? `${h % 12 || 12}${h < 12 ? "a" : "p"}` : "";
+    host.appendChild(lab);
+  }
+  // Day rows
+  for (let d = 0; d < grid.length; d++) {
+    const dt = new Date();
+    dt.setDate(dt.getDate() - (grid.length - 1 - d));
+    const lbl = document.createElement("div");
+    lbl.className = "h-label";
+    lbl.textContent = dt.toLocaleDateString(undefined, { weekday: "short" });
+    host.appendChild(lbl);
+    for (let h = 0; h < 24; h++) {
+      const cell = document.createElement("div");
+      cell.className = "h-cell";
+      const n = grid[d][h];
+      if (n > 0) {
+        const t = n / max;
+        cell.style.background = `rgba(255, 107, 74, ${0.2 + 0.8 * t})`;
+      }
+      cell.title = `${dt.toLocaleDateString(undefined, { weekday: "short" })} ${h}:00 — ${n} close${n === 1 ? "" : "s"}`;
+      host.appendChild(cell);
+    }
+  }
+}
+
 async function refreshDashboard() {
   const data = await send("get_dashboard");
   const stats = data.stats;
@@ -148,6 +228,9 @@ async function refreshDashboard() {
     col.appendChild(label);
     chart.appendChild(col);
   }
+
+  renderSuggestions(data.suggestions);
+  renderHeatmap(data.heatmap);
 
   const bd = $("sourceBreakdown");
   bd.innerHTML = "";
@@ -264,23 +347,62 @@ function renderLog() {
 function renderInsights(insights) {
   const el = $("insightsContent");
   const meta = $("insightsMeta");
+  el.innerHTML = "";
   if (insights?.error) {
-    el.innerHTML = `<div class="error">${insights.reason || insights.error}</div>`;
+    const err = document.createElement("div");
+    err.className = "error";
+    err.textContent = insights.reason || insights.error;
+    el.appendChild(err);
     meta.textContent = "";
     return;
   }
   if (!insights?.text) {
-    el.innerHTML = `<div class="empty">No insights yet — click "Generate fresh insights."</div>`;
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = 'No insights yet — click "Generate fresh insights."';
+    el.appendChild(empty);
     meta.textContent = "";
     return;
   }
-  // Format the structured response
+
+  // Parse Claude's structured response into (label, body) sections.
+  // Use textContent for all user-visible strings to avoid any HTML injection risk.
+  const SECTIONS = [
+    [/^PATTERN OBSERVED:\s*/im, "Pattern observed"],
+    [/^BIGGEST ATTENTION LEAK:\s*/im, "Biggest attention leak"],
+    [/^ONE THING TO TRY:\s*/im, "One thing to try"]
+  ];
+
   const text = insights.text;
-  const formatted = text
-    .replace(/PATTERN OBSERVED:/g, `<span class="section-label">Pattern observed</span>\n`)
-    .replace(/BIGGEST ATTENTION LEAK:/g, `<span class="section-label">Biggest attention leak</span>\n`)
-    .replace(/ONE THING TO TRY:/g, `<span class="section-label">One thing to try</span>\n`);
-  el.innerHTML = formatted;
+  // Locate each section in the text.
+  const hits = [];
+  for (const [re, label] of SECTIONS) {
+    const m = text.match(re);
+    if (m) hits.push({ idx: m.index, len: m[0].length, label });
+  }
+  hits.sort((a, b) => a.idx - b.idx);
+
+  if (hits.length === 0) {
+    const p = document.createElement("p");
+    p.textContent = text;
+    el.appendChild(p);
+  } else {
+    for (let i = 0; i < hits.length; i++) {
+      const h = hits[i];
+      const bodyStart = h.idx + h.len;
+      const bodyEnd = i + 1 < hits.length ? hits[i + 1].idx : text.length;
+      const body = text.slice(bodyStart, bodyEnd).trim();
+      const labelEl = document.createElement("span");
+      labelEl.className = "section-label";
+      labelEl.textContent = h.label;
+      el.appendChild(labelEl);
+      const p = document.createElement("p");
+      p.textContent = body;
+      p.style.marginBottom = "4px";
+      el.appendChild(p);
+    }
+  }
+
   meta.textContent = `Generated ${formatRelativeTime(insights.generatedAt)}`;
 }
 
@@ -341,31 +463,28 @@ async function saveRules() {
 // Onboarding
 async function maybeShowOnboarding() {
   const { settings } = await send("get_dashboard");
+  // Migration: if user already has an API key, consider onboarding done.
+  if (settings.apiKey && !settings.onboardingComplete) {
+    await send("set_settings", { partial: { onboardingComplete: true } });
+    return;
+  }
   if (!settings.onboardingComplete) {
     $("onboarding").classList.remove("hidden");
   }
 }
-function showStep(n) {
-  document.querySelectorAll(".step").forEach((s) => {
-    s.classList.toggle("active", parseInt(s.dataset.step, 10) === n);
-  });
-}
-$("onboardNext1").addEventListener("click", async () => {
-  const key = $("onboardApiKey").value.trim();
-  if (key) await send("set_settings", { partial: { apiKey: key } });
-  showStep(2);
-});
-$("onboardSkip1").addEventListener("click", () => showStep(2));
-$("onboardBack2").addEventListener("click", () => showStep(1));
-$("onboardNext2").addEventListener("click", async () => {
-  const strict = document.querySelector('input[name="strict"]:checked').value;
-  await send("set_settings", { partial: { strictLevel: strict } });
-  showStep(3);
-});
-$("onboardDone").addEventListener("click", async () => {
-  await send("set_settings", { partial: { onboardingComplete: true } });
+async function finishOnboarding(partial) {
+  await send("set_settings", { partial: { ...partial, onboardingComplete: true } });
   $("onboarding").classList.add("hidden");
   loadRules();
+  refreshDashboard();
+}
+$("onboardSkip1").addEventListener("click", async () => { await finishOnboarding({}); });
+$("onboardDone").addEventListener("click", async () => {
+  const key = $("onboardApiKey").value.trim();
+  const strict = document.querySelector('input[name="strict"]:checked').value;
+  const partial = { strictLevel: strict };
+  if (key) partial.apiKey = key;
+  await finishOnboarding(partial);
 });
 
 // Sessions
@@ -404,7 +523,6 @@ $("clearCache").addEventListener("click", async () => {
 });
 $("replayOnboarding").addEventListener("click", async () => {
   await send("set_settings", { partial: { onboardingComplete: false } });
-  showStep(1);
   $("onboarding").classList.remove("hidden");
 });
 $("pauseBtn").addEventListener("click", async () => {

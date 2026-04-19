@@ -56,7 +56,13 @@ export async function classifyWithClaude(meta, settings) {
   const body = {
     model: MODEL,
     max_tokens: MAX_TOKENS,
-    system: buildSystemPrompt(settings),
+    system: [
+      {
+        type: "text",
+        text: buildSystemPrompt(settings),
+        cache_control: { type: "ephemeral" }
+      }
+    ],
     messages: [{ role: "user", content: buildUserPrompt(meta) }]
   };
 

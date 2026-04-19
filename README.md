@@ -75,7 +75,8 @@ Both feed a 5-second popup on your next active tab with contextual actions: **Re
 
 | | |
 |---|---|
-| **Claude classifier** | Reads title, channel, description, tags. Returns productive/unproductive with reason. ~500ms, ~$0.0005 per call. |
+| **Claude classifier** | Reads title, channel, description, tags. Returns productive/unproductive with reason. ~500ms, ~$0.0005 per call. Uses Anthropic prompt caching on the system prompt — subsequent calls are faster and cheaper. |
+| **Evaluation harness** | 30-case labeled test set under `evals/`. Run `npm run eval` to validate prompt changes. Exit code gates CI. |
 | **Focus Sessions** | Timer-based deep work mode. 25/50/90-min presets. During a session, classifier runs stricter and cache bypasses. End-of-session toast reports how many distractions got blocked. |
 | **AI Weekly Insights** | Claude reads your last 7 days of closes and writes a personalized brief: pattern observed, biggest attention leak, one thing to try. ~$0.001 per generation. |
 | **Attention score** | Single number, tracked daily. Trends over time. Progress has to be legible for behavior change to work. |
@@ -162,16 +163,17 @@ Attention is becoming the scarcest resource in the knowledge economy. There's a 
 
 ## Stack
 
-Zero dependencies. No build step. No server. Pure vanilla JS + Manifest V3.
+Zero runtime dependencies. No build step. No server. Pure vanilla JS + Manifest V3.
 
 ```
-manifest.json        LICENSE           README.md
-service-worker.js    (coordinator: nav events, Claude calls, tab close, popup inject, sessions, insights)
+manifest.json        LICENSE           README.md         package.json (eval scripts)
+service-worker.js    (coordinator: nav events, Claude calls, tab close, popup inject, sessions, insights, suggestions)
 icons/               icon-{16,32,48,128}.png + icon.svg
-classifier/          claude.js · rules.js · insights.js
-content/             youtube.js · linkedin-hide-badges.css
-lib/                 storage.js (sync/local, overrides, sessions, pause) · logger.js (log + stats)
-options/             options.html · options.css · options.js (tabbed dashboard)
+classifier/          rules.js (local pre-classifier) · claude.js (Haiku + prompt caching) · insights.js (weekly summary)
+content/             youtube.js (SPA detection, metadata extraction) · linkedin-hide-badges.css
+lib/                 storage.js · logger.js · suggestions.js (proactive pattern detection)
+options/             options.html · options.css · options.js (tabbed dashboard + onboarding)
+evals/               dataset.js (30 labeled cases) · run.js (eval harness) · README.md
 docs/                index.html (GitHub Pages landing)
 ```
 

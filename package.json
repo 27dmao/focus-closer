@@ -1,0 +1,15 @@
+{
+  "name": "focus-closer",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "The AI bouncer for your browser.",
+  "scripts": {
+    "eval": "node evals/run.js",
+    "eval:rules": "node evals/run.js --rules-only",
+    "eval:verbose": "node evals/run.js --verbose"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

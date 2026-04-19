@@ -10,44 +10,24 @@
 <div id="onboarding" class="onboarding hidden">
   <div class="onboarding-card">
     <div class="step active" data-step="1">
-      <div class="step-label">Step 1 of 3</div>
-      <h2>Welcome to Focus Closer.</h2>
-      <p class="step-body">This extension closes distracting tabs before you can scroll them. YouTube videos get a Claude-powered content verdict. Domains on your blocklist instantly close. False positives recover in 5 seconds.</p>
-      <p class="step-body">To classify YouTube, it needs an <b>Anthropic API key</b>. ~$0.30/month at typical use.</p>
-      <input id="onboardApiKey" type="password" placeholder="sk-ant-..." autocomplete="off" />
-      <div class="step-actions">
-        <button class="btn-ghost" id="onboardSkip1">Skip for now</button>
-        <button class="btn-primary" id="onboardNext1">Continue</button>
+      <h2>The AI bouncer for your browser.</h2>
+      <p class="step-body">Distracting tabs close before you scroll them. Claude classifies every YouTube video in ~500ms. False positives recover in 5 seconds.</p>
+      <div class="onboard-field">
+        <label>Anthropic API key <span class="mute">— classifies YouTube, ~$0.30/month</span></label>
+        <input id="onboardApiKey" type="password" placeholder="sk-ant-..." autocomplete="off" />
       </div>
-    </div>
-
-    <div class="step" data-step="2">
-      <div class="step-label">Step 2 of 3</div>
-      <h2>Pick your strictness.</h2>
-      <p class="step-body">Strict = ambiguous defaults to close. Balanced = ambiguous defaults to keep. Both have the 5-second recovery popup either way.</p>
-      <div class="strict-options">
-        <label class="strict-opt"><input type="radio" name="strict" value="strict" checked><div><div class="strict-title">Strict</div><div class="strict-sub">Recommended. You want friction. Borderline content closes.</div></div></label>
-        <label class="strict-opt"><input type="radio" name="strict" value="balanced"><div><div class="strict-title">Balanced</div><div class="strict-sub">Only high-confidence unproductive closes. Less aggressive.</div></div></label>
+      <div class="onboard-field">
+        <label>Strictness</label>
+        <div class="strict-options">
+          <label class="strict-opt"><input type="radio" name="strict" value="strict" checked><div><div class="strict-title">Strict</div><div class="strict-sub">Borderline closes. 5-sec recovery catches mistakes.</div></div></label>
+          <label class="strict-opt"><input type="radio" name="strict" value="balanced"><div><div class="strict-title">Balanced</div><div class="strict-sub">Only high-confidence unproductive closes.</div></div></label>
+        </div>
       </div>
       <div class="step-actions">
-        <button class="btn-ghost" id="onboardBack2">Back</button>
-        <button class="btn-primary" id="onboardNext2">Continue</button>
+        <button class="btn-ghost" id="onboardSkip1">I'll set this up later</button>
+        <button class="btn-primary" id="onboardDone">Start focusing →</button>
       </div>
-    </div>
-
-    <div class="step" data-step="3">
-      <div class="step-label">Step 3 of 3</div>
-      <h2>You're set.</h2>
-      <p class="step-body">Try it now:</p>
-      <ol class="try-list">
-        <li>Visit a YouTube video you know is distracting — it should close within a second.</li>
-        <li>On any blocklist domain (instagram.com, x.com, linkedin.com/feed), the tab closes instantly.</li>
-        <li>Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd> to flag a video the classifier missed.</li>
-        <li>Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> to pause the extension for an hour.</li>
-      </ol>
-      <div class="step-actions">
-        <button class="btn-primary" id="onboardDone">Start focusing</button>
-      </div>
+      <div class="onboard-hint">Shortcuts: <kbd>Ctrl+Shift+X</kbd> to flag a distracting tab · <kbd>Ctrl+Shift+P</kbd> to pause 1 hour</div>
     </div>
   </div>
 </div>
@@ -123,12 +103,29 @@
     </div>
   </div>
 
-  <div class="card">
+  <div id="suggestionsCard" class="card suggestions-card hidden">
     <div class="card-header">
-      <h3>Last 7 days</h3>
-      <span class="card-sub">tabs closed per day</span>
+      <h3>Smart suggestions</h3>
+      <span class="card-sub">from your patterns</span>
     </div>
-    <div class="chart" id="chart7d"></div>
+    <div id="suggestions" class="suggestions"></div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-header">
+        <h3>Last 7 days</h3>
+        <span class="card-sub">tabs closed per day</span>
+      </div>
+      <div class="chart" id="chart7d"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h3>When you get distracted</h3>
+        <span class="card-sub">hour × day heatmap</span>
+      </div>
+      <div class="heatmap" id="heatmap"></div>
+    </div>
   </div>
 
   <div class="grid-2">
@@ -170,12 +167,11 @@
   </div>
 
   <div class="card">
-    <div class="card-header"><h3>How it differs from always-on mode</h3></div>
+    <div class="card-header"><h3>How sessions differ</h3></div>
     <ul class="dots">
-      <li><b>Strict boost.</b> Low-confidence "productive" verdicts default to close during a session. Normal mode keeps them.</li>
-      <li><b>Cache bypass.</b> Every video re-classifies fresh — so a previously-productive video gets the tighter bar applied too.</li>
-      <li><b>Completion ritual.</b> End-of-session toast tells you how many distractions got blocked — small dopamine reward for finishing.</li>
-      <li><b>Log tag.</b> Closes during a session are tagged so the Insights tab can show session-vs-ambient patterns.</li>
+      <li><b>Strict boost.</b> Low-confidence "productive" verdicts flip to close.</li>
+      <li><b>Cache bypass.</b> Every video re-classifies against the tighter bar.</li>
+      <li><b>End-of-session toast.</b> Reports how many distractions got blocked.</li>
     </ul>
   </div>
 </section>
@@ -286,29 +282,30 @@
 
 <section class="panel hidden" data-panel="help">
   <div class="card">
-    <div class="card-header"><h3>Keyboard shortcuts</h3></div>
+    <div class="card-header"><h3>Shortcuts</h3></div>
     <table class="kbd-table">
-      <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd></td><td>Mark current video/tab as distracting and close it</td></tr>
-      <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd></td><td>Pause / resume the extension (1h pause by default)</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd></td><td>Flag current video/tab as distracting</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd></td><td>Pause / resume (1h by default)</td></tr>
       <tr><td><kbd>ESC</kbd></td><td>Dismiss the close popup</td></tr>
     </table>
     <div class="help">Rebind at <a href="chrome://extensions/shortcuts" target="_blank">chrome://extensions/shortcuts</a>.</div>
   </div>
 
   <div class="card">
-    <div class="card-header"><h3>How classification works</h3></div>
+    <div class="card-header"><h3>Classification waterfall</h3></div>
     <ol class="numbered">
-      <li><b>User override</b> — videos you've manually flagged always close; videos you've reopened as false positives always stay.</li>
-      <li><b>Cache</b> — videos classified within the last 30 days use the cached verdict instantly.</li>
-      <li><b>Local rules</b> — channel whitelist / blocklist and keyword matching on title/description. Free, ~0 latency. Covers ~50% of cases.</li>
-      <li><b>Claude Haiku 4.5</b> — remaining ambiguous cases. ~$0.0005/call, ~500ms. Returns <code>productive</code> / <code>unproductive</code> with reason.</li>
-      <li><b>Fail-open</b> — if Claude is unreachable, the tab stays. Never silently break browsing.</li>
+      <li><b>User override</b> — flagged videos always close; reopened videos always stay.</li>
+      <li><b>Cache</b> — 30-day TTL. Bypassed during Focus Sessions.</li>
+      <li><b>Local rules</b> — channels + title keywords. Covers ~50% of traffic.</li>
+      <li><b>Claude Haiku 4.5</b> — the rest. ~$0.0005/call, ~500ms, prompt-cached.</li>
+      <li><b>Fail-open</b> — Claude down → tab stays.</li>
     </ol>
+    <div class="help">Eval harness at <code>evals/run.js</code>. Run <code>npm run eval</code> to validate prompt changes against 30 labeled cases.</div>
   </div>
 
   <div class="card">
     <div class="card-header"><h3>Commitment device</h3></div>
-    <div class="help">The extension alone is bypassable — Guest mode, Incognito, or a fresh Chrome profile all defeat it. For real enforcement, pair with a Chrome managed policy that disables Guest / Incognito / new profiles. On macOS that lives at <code>/Library/Managed Preferences/com.google.Chrome.plist</code> and requires <code>sudo</code> to install or remove. See the README for the policy file.</div>
+    <div class="help">Guest mode, Incognito, and fresh Chrome profiles bypass any extension. Pair this with a managed Chrome policy (on macOS: <code>/Library/Managed Preferences/com.google.Chrome.plist</code>, requires <code>sudo</code>). See the README.</div>
   </div>
 </section>
 

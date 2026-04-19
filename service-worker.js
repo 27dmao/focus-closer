@@ -25,6 +25,7 @@ import {
   setInsightsCache
 } from "./lib/storage.js";
 import { logDecision, getStats, getLog, clearLog } from "./lib/logger.js";
+import { generateSuggestions } from "./lib/suggestions.js";
 import { classifyLocally } from "./classifier/rules.js";
 import { classifyWithClaude } from "./classifier/claude.js";
 import { generateInsights } from "./classifier/insights.js";
@@ -60,6 +61,24 @@ function parseUrl(urlStr) {
     const u = new URL(urlStr);
     return { hostname: u.hostname.toLowerCase(), pathname: u.pathname };
   } catch { return null; }
+}
+
+function buildHourHeatmap(log) {
+  // 7 days × 24 hours; day 0 = 6 days ago, day 6 = today. Closes only.
+  const now = new Date();
+  now.setHours(23, 59, 59, 999);
+  const DAY = 24 * 60 * 60 * 1000;
+  const grid = Array.from({ length: 7 }, () => Array(24).fill(0));
+  for (const e of log) {
+    const isClose = e.verdict === "unproductive" || e.kind === "blocklist" || e.kind === "user_flag";
+    if (!isClose) continue;
+    const d = new Date(e.at);
+    const daysAgo = Math.floor((now.getTime() - d.getTime()) / DAY);
+    if (daysAgo < 0 || daysAgo > 6) continue;
+    const dayIdx = 6 - daysAgo;
+    grid[dayIdx][d.getHours()] += 1;
+  }
+  return grid;
 }
 
 function findMatchingBlocklistEntry(hostname, pathname, blocklist, toggles) {
@@ -140,7 +159,10 @@ function popupRendererSource() {
       "bottom:20px",
       "right:20px",
       "z-index:2147483647",
-      "font:13px/1.45 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif"
+      "font:13px/1.45 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif",
+      "transform:translateY(8px) scale(0.98)",
+      "opacity:0",
+      "transition:transform 260ms cubic-bezier(0.16,1,0.3,1),opacity 200ms ease-out"
     ].join(";");
 
     const card = document.createElement("div");
@@ -148,11 +170,12 @@ function popupRendererSource() {
       `background:${bg}`,
       "color:#fff",
       "padding:14px 16px",
-      "border-radius:10px",
-      "box-shadow:0 8px 28px rgba(0,0,0,0.4)",
+      "border-radius:12px",
+      "box-shadow:0 12px 36px rgba(0,0,0,0.5),0 2px 8px rgba(0,0,0,0.3)",
       `border-left:4px solid ${accent}`,
       "min-width:340px",
-      "max-width:440px"
+      "max-width:440px",
+      "backdrop-filter:blur(12px)"
     ].join(";");
 
     const header = document.createElement("div");
@@ -186,16 +209,19 @@ function popupRendererSource() {
       b.textContent = label;
       b.style.cssText = [
         "border:0",
-        `background:${primary ? accent : "rgba(255,255,255,0.12)"}`,
+        `background:${primary ? accent : "rgba(255,255,255,0.1)"}`,
         "color:#fff",
-        "padding:7px 10px",
-        "border-radius:6px",
+        "padding:8px 12px",
+        "border-radius:7px",
         "font:600 12px/1 inherit",
         "cursor:pointer",
-        "white-space:nowrap"
+        "white-space:nowrap",
+        "transition:background 120ms ease,transform 80ms ease"
       ].join(";");
-      b.addEventListener("mouseenter", () => { b.style.opacity = "0.85"; });
-      b.addEventListener("mouseleave", () => { b.style.opacity = "1"; });
+      b.addEventListener("mouseenter", () => { b.style.background = primary ? "#ff8363" : "rgba(255,255,255,0.18)"; });
+      b.addEventListener("mouseleave", () => { b.style.background = primary ? accent : "rgba(255,255,255,0.1)"; });
+      b.addEventListener("mousedown", () => { b.style.transform = "scale(0.96)"; });
+      b.addEventListener("mouseup", () => { b.style.transform = "scale(1)"; });
       b.addEventListener("click", () => {
         chrome.runtime.sendMessage({ type: "popup_action", payload });
         cleanup();
@@ -223,7 +249,7 @@ function popupRendererSource() {
     const meta = document.createElement("div");
     meta.style.cssText = "margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center;font-size:10px;opacity:0.55;";
     const left = document.createElement("span");
-    left.textContent = "ESC or 5s to dismiss · hover to keep";
+    left.textContent = "ESC to dismiss · hover to hold";
     const right = document.createElement("a");
     right.textContent = "Pause extension";
     right.href = "#";
@@ -240,13 +266,19 @@ function popupRendererSource() {
     host.appendChild(card);
     document.documentElement.appendChild(host);
 
+    requestAnimationFrame(() => {
+      host.style.transform = "translateY(0) scale(1)";
+      host.style.opacity = "1";
+    });
+
     let remaining = 5000;
     let lastTick = Date.now();
     let paused = false;
     let timer = null;
+    let closed = false;
 
     function tick() {
-      if (paused) return;
+      if (paused || closed) return;
       const now = Date.now();
       remaining -= now - lastTick;
       lastTick = now;
@@ -254,9 +286,13 @@ function popupRendererSource() {
       else timer = setTimeout(tick, Math.min(remaining, 200));
     }
     function cleanup() {
+      if (closed) return;
+      closed = true;
       if (timer) clearTimeout(timer);
       document.removeEventListener("keydown", onKey, true);
-      if (host.parentNode) host.remove();
+      host.style.transform = "translateY(8px) scale(0.98)";
+      host.style.opacity = "0";
+      setTimeout(() => { if (host.parentNode) host.remove(); }, 200);
     }
     function onKey(e) {
       if (e.key === "Escape") { e.stopPropagation(); cleanup(); }
@@ -430,15 +466,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg?.type === "get_dashboard") {
     (async () => {
-      const [stats, pause, settings, meta, session, insights] = await Promise.all([
+      const [stats, pause, settings, meta, session, insights, log] = await Promise.all([
         getStats(),
         getPauseState(),
         getSync(),
         getOrInitInstallMeta(),
         getSessionState(),
-        getInsightsCache()
+        getInsightsCache(),
+        getLog()
       ]);
-      sendResponse({ stats, pause, settings, installedAt: meta.installedAt, session, insights });
+      const suggestions = generateSuggestions(log, settings);
+      const heatmap = buildHourHeatmap(log);
+      sendResponse({ stats, pause, settings, installedAt: meta.installedAt, session, insights, suggestions, heatmap });
+    })();
+    return true;
+  }
+
+  if (msg?.type === "apply_suggestion") {
+    (async () => {
+      const a = msg.action || {};
+      if (a.type === "add_channel_blocklist" && a.channel) {
+        const settings = await getSync();
+        const list = settings.channelBlocklist || [];
+        if (!list.includes(a.channel)) {
+          list.push(a.channel);
+          await setSync({ channelBlocklist: list });
+        }
+      } else if (a.type === "add_channel_whitelist" && a.channel) {
+        const settings = await getSync();
+        const list = settings.channelWhitelist || [];
+        if (!list.includes(a.channel)) {
+          list.push(a.channel);
+          await setSync({ channelWhitelist: list });
+        }
+      }
+      sendResponse({ ok: true });
     })();
     return true;
   }

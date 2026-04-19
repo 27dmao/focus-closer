@@ -6,6 +6,7 @@
 
   let currentVideoId = null;
   let inFlight = false;
+  let retryPending = false;
 
   function isExtensionAlive() {
     try { return !!chrome.runtime?.id; } catch { return false; }
@@ -100,7 +101,7 @@
     if (!isExtensionAlive()) return;
     const loc = getVideoIdFromLocation();
     if (!loc || !loc.videoId) return;
-    if (inFlight) return;
+    if (inFlight) { retryPending = true; return; }
     if (loc.videoId === currentVideoId) return;
     currentVideoId = loc.videoId;
     inFlight = true;
@@ -141,6 +142,12 @@
       }
     } finally {
       inFlight = false;
+      if (retryPending) {
+        retryPending = false;
+        // User navigated to a different video while we were classifying;
+        // re-run so the new video gets classified too.
+        setTimeout(classifyCurrent, 50);
+      }
     }
   }
 
