@@ -84,8 +84,10 @@ Both feed a 5-second popup on your next active tab with contextual actions: **Re
 | **Path-level blocklist** | `linkedin.com/feed` blocked, `/messaging` untouched. Match is suffix-based on host, prefix-based on path with segment boundary. |
 | **Work-whitelist** | Gmail, Calendar, Claude, ChatGPT, Apollo, HeyReach, Symbal, Ashby, Upwork can never be blocked — even if you try. |
 | **Pause / panic button** | 1h / today / indefinite from popup, shortcut, or dashboard. Real products have escape valves. |
-| `Ctrl+Shift+X` | Mark current video/tab as distracting. Remembers the videoId so it closes on re-visit. |
-| `Ctrl+Shift+P` | Pause/resume the extension for an hour. |
+| `⌘+Shift+X` | Mark distracting — closes tab and auto-blocks the channel. Remembers the videoId so re-visits close instantly. |
+| `⌘+Shift+S` | Mark productive — whitelists current video + channel, OR undoes the last close (within 5 min). |
+| `⌘+Shift+P` | Pause/resume the extension for an hour. |
+| (Windows/Linux: `Ctrl` instead of `⌘`) | |
 | **LinkedIn badge hiding** | CSS rules that hide every notification badge except Messaging — because the only notification I want is when someone actually messages me. |
 | **Commitment device** | Pairs with a macOS Chrome managed policy that disables Guest mode, Incognito, and new-profile creation — `sudo` to install and remove. |
 | **Onboarding wizard** | First-run walks through API key, strictness level, and a test-it-now checklist. |

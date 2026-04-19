@@ -55,21 +55,21 @@
     "mark-distracting": {
       "suggested_key": {
         "default": "Ctrl+Shift+X",
-        "mac": "Ctrl+Shift+X"
+        "mac": "Command+Shift+X"
       },
       "description": "Mark distracting: close + auto-block the channel (and undo not possible)"
     },
     "mark-productive": {
       "suggested_key": {
         "default": "Ctrl+Shift+S",
-        "mac": "Ctrl+Shift+S"
+        "mac": "Command+Shift+S"
       },
       "description": "Mark productive: whitelist current video + channel, OR undo the last close"
     },
     "toggle-pause": {
       "suggested_key": {
         "default": "Ctrl+Shift+P",
-        "mac": "Ctrl+Shift+P"
+        "mac": "Command+Shift+P"
       },
       "description": "Pause / resume Focus Closer (1 hour pause by default)"
     }
