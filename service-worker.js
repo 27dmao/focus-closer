@@ -821,7 +821,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const hostname = msg.hostname || "";
       if (!hostname) { sendResponse({ ok: false }); return; }
       const dismissed = await isDomainDismissed(hostname);
-      const status = await trackerDomainStatus(hostname);
+      // Resolve the verdict via the same waterfall the auto-close uses, so
+      // deterministic paths (work-whitelist, blocklist, cache, personal-policy)
+      // give the dot a real color immediately. This DOES potentially trigger
+      // a Claude call for unknown domains — but the rate limiter in
+      // classifier/domain.js caps concurrency, and indicator visits are
+      // already deduped per-tab.
+      let verdict = null, reason = "", confidence = null;
+      try {
+        const settings = await getSync();
+        const policy = await getPersonalPolicy();
+        const history = await getFeedbackHistory();
+        const r = await classifyDomain({
+          hostname,
+          pathname: "/",
+          title: sender?.tab?.title || "",
+          description: "",
+          settings, policy, history
+        });
+        verdict = r.verdict || null;
+        reason = r.reason || "";
+        confidence = typeof r.confidence === "number" ? r.confidence : null;
+      } catch {}
       const stats = await getDomainTimeStats();
       const today = stats.buckets[(new Date().toISOString().slice(0, 10))] || {};
       const todayMs = today[hostname] || 0;
@@ -830,9 +851,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         ok: true,
         hostname,
         dismissed,
-        verdict: status.verdict,
-        reason: status.reason,
-        confidence: status.confidence,
+        verdict,
+        reason,
+        confidence,
         todayMs,
         totalMs
       });
