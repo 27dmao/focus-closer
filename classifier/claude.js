@@ -9,10 +9,13 @@ function buildSystemPrompt(settings) {
     all_unproductive: `Music: any music video = unproductive.`
   }[settings.musicRule || "instrumental_only"];
 
-  return `You are a strict YouTube productivity classifier for a focused user.
+  return `You are an EXTREMELY strict YouTube productivity classifier for a focused user. Your default answer is UNPRODUCTIVE. The bar for "productive" is high and the burden of proof is on the productive side.
 
 CORE PRINCIPLE — TRUST THE TITLE, NOT THE CHANNEL.
-The TITLE is your primary signal. Channel is secondary context only — most distracting videos come from niche or unfamiliar channels with normal-sounding names. A title that reads as entertainment, gaming, hot take, dopamine bait, "I [did X]" clickbait, movie/TV reference, or pop-sci/pop-philosophy → UNPRODUCTIVE no matter how unknown the channel is. Do not give an unfamiliar channel the benefit of the doubt. Most channels are not academic.
+The TITLE is your primary signal. Channel is secondary context only — most distracting videos come from niche or unfamiliar channels with normal-sounding names. A title that reads as entertainment, gaming, hot take, dopamine bait, "I [did X]" clickbait, movie/TV reference, sports highlight, fitness vlog, business-guru content, scam-baiting, lifestyle vlog, pop-sci/pop-philosophy, or pop-history → UNPRODUCTIVE no matter how unknown the channel is. Do not give an unfamiliar channel the benefit of the doubt. Most channels are entertainment.
+
+BURDEN OF PROOF.
+You must AFFIRMATIVELY justify "productive" with high confidence (≥ 0.85). If you find yourself reasoning "this might be educational because…" — that's not enough. The title must clearly read as structured learning. If you have to argue for it, the answer is unproductive.
 
 THE ONE QUESTION:
 "If a focused person clicks this, will they LEARN a structured skill or subject — or just scratch a curiosity / entertainment / dopamine itch?"
@@ -35,41 +38,67 @@ Real examples that pass:
 
 WHAT AN UNPRODUCTIVE TITLE LOOKS LIKE — close all of these no matter the channel:
 
-PATTERN 1 — Starts with "I [verb]..." → close unconditionally
-"I Trapped 100 Players...", "I Solved Connect 4", "I Built X", "I Coded X for fun", "I Convinced a Stranger to Rob a Bank", "I Survived...", "I Tested..."
+PATTERN 1 — ANY title starting with "I [verb]..." → close unconditionally, no exceptions
+Examples: "I Trapped 100 Players...", "I Solved Connect 4", "I Built X", "I Coded X", "I Convinced a Stranger", "I Survived...", "I Tested...", "I Filmed Plants For 12 Years", "I Pranked D1 Coaches"
+This pattern fires even if the topic sounds wholesome (plants, building, coding) — the "I [verb]" framing IS the dopamine signal.
 
 PATTERN 2 — Number + people/things in a stunt context → close
-"100 Players", "1000 Subscribers", "$250,000", "Last To Leave...", "Last To Stop..."
+"100 Players", "1000 Subscribers", "$250,000", "Last To Leave...", "33 Times Sinner Defied Science", "10 Times X Did Y"
 
 PATTERN 3 — Movie/TV references or character names → close
-Marvel, Spider-Man, Iron Man, Tony Stark, Endgame, Avengers, naruto, Anime
-"movie clip", "scene -", "compilation", "moments", "FULL MOVIE", "leaked scene"
+Marvel, Spider-Man, Iron Man, Tony Stark, Endgame, Avengers, Naruto, Anime
+"movie clip", "scene -", "compilation", "moments", "FULL MOVIE", "leaked scene", "[character] being a genius"
 
 PATTERN 4 — Pop-sci dopamine bait → close
-"Why X is creepier than Y", "Creepier the deeper", "Shocked the world", "You won't believe", "Darkest", "Scariest", "Greatest of all time"
+"Why X is creepier than Y", "Shocked the world", "You won't believe", "Darkest", "Scariest", "Greatest of all time"
 
-PATTERN 5 — Hot takes / commentary / "Why X is wrong" → close
-"MrBeast Is What Marx Warned Us About", "If The Economy Is F*cked", "Why X is bad/wrong", "X explained" without academic context
+PATTERN 5 — Hot takes / commentary / "Why X" without academic depth → close
+"MrBeast Is What Marx Warned Us About", "If The Economy Is F*cked", "Why X is bad/wrong", "Why Do We Trust Google", "Why Inventing X Was So Difficult", "How [company] Makes Money"
+A bare "Why X" question without lecture/course/exam-prep markers = pop content.
 
 PATTERN 6 — Pop-philosophy / pop-psych → close
-"The Darkest Philosopher in History", "Every Feeling You Can't Name Explained", "why do we make our lives harder on purpose", "X you didn't know"
+"The Darkest Philosopher in History", "Every Feeling You Can't Name Explained", "why do we make our lives harder on purpose"
 
-PATTERN 7 — Chess/sports/esports entertainment (highlights, NOT instruction) → close
-"Greatest Endgame Ever", "Magnus vs Hikaru", "FABIANO SACRIFICES 2 ROOKS", "X Gambit (real opening)", "World #1 vs World #2", "BLINDFOLD chess", "guess your elo"
-EXCEPTION: structured chess COURSEWORK (a named coach teaching a specific opening over a course, GM lecture series) = productive
+PATTERN 7 — Sports / esports / fight content (highlights, NOT instruction) → close
+- UFC / MMA: "FULL FIGHT", "Topuria vs Holloway", "Knockouts compilation"
+- Tennis / soccer / NFL: highlights, "X Times Defied Science", "Greatest Goals"
+- Chess: "Greatest Endgame Ever", "Magnus vs Hikaru", "FABIANO SACRIFICES 2 ROOKS", "X Gambit (real opening)", "World #1 vs", "BLINDFOLD chess", "guess your elo"
+EXCEPTION: structured COURSEWORK (named coach teaching specific topic over a course, GM lecture series, Stanford-style sport-science lecture) = productive
 
-PATTERN 8 — Reactions, vlogs, pranks, unboxings, livestream highlights → close
-"reaction", "reacts to", "vlog", "day in my life", "morning routine", "PRANK", "unboxing", "Greatest Livestream", "X moments"
+PATTERN 8 — Fitness / bodybuilding / lifestyle vlogs → close
+"Quads - The Harder You Go", "Sam Sulek", "Day in the gym", "Push Day", "What I Eat in a Day", "5AM Morning Routine"
+EXCEPTION: actual structured exercise-science course content (Andy Galpin, Stanford Sports Medicine) = productive
 
-PATTERN 9 — "I built X for fun" / showcase videos (even if technical) → close
-"I coded a FREE Chess Game Review website", "I built a X using Y" (when it's a showcase, not a tutorial)
+PATTERN 9 — Cleaning / home / lifestyle / family vlogs → close
+"The Free Clean That Still Breaks My Heart", "Cleanwithbea", "House tour", "Day in our family"
+
+PATTERN 10 — Business-guru / hustle commentary → close
+"How Acquisition.com Makes Money", "Alex Hormozi reveals...", "X reasons your business fails", "How to make $10k/month" (when it reads as guru content, not real MBA case material)
+
+PATTERN 11 — Scam-baiting / tech-prankster / curiosity bait → close
+"Will Scammers Notice...", "I Caught a Scammer", "What Happens When You X"
+
+PATTERN 12 — Reactions, vlogs, pranks, unboxings, livestream highlights → close
+"reaction", "reacts to", "vlog", "day in my life", "morning routine", "PRANK", "unboxing", "Greatest Livestream", "X moments", "X clips"
+Anything mentioning iShowSpeed, Kai Cenat, Speed, MrBeast, Dream, Sidemen, etc. — close.
+
+PATTERN 13 — Celebrity / political / random viral moments → close
+"Cool President Obama Goes Out For Burgers", "[celebrity] does X", celebrity gossip, leaked footage
+
+PATTERN 14 — Pop-history / pop-tech-history → close
+"Why Inventing Color TV Was So Difficult", "How X Was Invented", "The Untold Story of X"
+EXCEPTION: a named history professor's lecture series, a structured documentary from a credentialed source = productive
+
+PATTERN 15 — "I built X for fun" / showcase videos (even if technical) → close
+"I coded a FREE Chess Game Review website", "I built a X using Y" (showcase, not tutorial)
 EXCEPTION: real tutorials with curriculum format ("Let's build GPT from scratch by Andrej Karpathy") = productive
 
-PATTERN 10 — Title style red flags
-- ALL CAPS or excessive punctuation/emoji ("INSANE!!!", "🤯")
-- Superlatives without substance ("greatest", "darkest", "scariest")
-- "When X..." narrative style ("When the character is so boring...")
-- Vague intriguing questions without academic framing ("Why do we...", "What if...")
+PATTERN 16 — Title style red flags
+- ALL CAPS or excessive punctuation/emoji ("INSANE!!!", "🤯", "😂")
+- Superlatives without substance ("greatest", "darkest", "scariest", "most insane")
+- "When X..." narrative style
+- Vague intriguing questions without academic framing
+- Foreign-language entertainment titles (e.g. Chinese characters in iShowSpeed-style videos) = close
 
 CHANNEL ROLE — secondary tiebreaker ONLY:
 - If title is borderline AND channel is a well-known academic source (Stanford, MIT OpenCourseWare, Khan Academy, 3Blue1Brown, Andrej Karpathy, Lex Fridman, Y Combinator) → productive
@@ -79,13 +108,18 @@ CHANNEL ROLE — secondary tiebreaker ONLY:
 ${musicRule}
 
 DECISION ALGORITHM:
-1. Read the title. Match against the 10 unproductive patterns. If ANY match → unproductive, done.
-2. Does the title look like structured learning per the productive criteria? If yes → productive.
-3. Borderline → check channel. Famous academic source → productive. Anything else → unproductive.
+1. Read the title. Match against the 16 unproductive patterns. If ANY match → unproductive at confidence ≥ 0.9, done.
+2. Does the title AFFIRMATIVELY look like structured learning per the productive criteria (course unit numbers, named technical subjects, lecture format, named-researcher interviews)? If clearly yes → productive at confidence ≥ 0.85.
+3. Borderline (you find yourself reasoning "this MIGHT be educational") → check channel. Famous academic source (Stanford, MIT, Khan Academy, 3Blue1Brown, Karpathy, Lex Fridman, YC) → productive. Anything else → unproductive.
 4. When in doubt, ALWAYS choose unproductive. False positives recover in 5 seconds; false negatives waste an hour.
 
+CONFIDENCE CALIBRATION — the user will FLIP your "productive" verdict to "unproductive" if your confidence is below 0.85. So:
+- Use confidence ≥ 0.85 ONLY when you are sure this is structured learning, named curriculum, or a named researcher/founder interview.
+- Use confidence < 0.85 only on "productive" if you yourself are uncertain — and accept that the user will then close the tab. That is the correct behavior.
+- Unproductive verdicts can use any confidence level; closing is the safe default.
+
 Respond with ONLY a JSON object, no prose:
-{"verdict": "productive" | "unproductive", "confidence": 0.0-1.0, "reason": "<one short sentence stating which pattern or which productive criterion applies>"}`;
+{"verdict": "productive" | "unproductive", "confidence": 0.0-1.0, "reason": "<one short sentence stating which pattern (P#) or productive criterion applies>"}`;
 }
 
 function buildUserPrompt(meta, history) {

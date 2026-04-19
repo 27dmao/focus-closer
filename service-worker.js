@@ -111,9 +111,20 @@ async function classifyVideo(meta, settings, sessionActive) {
   const history = await getFeedbackHistory();
   const remote = await classifyWithClaude(meta, settings, history);
   if (remote.verdict) {
-    if (sessionActive && remote.verdict === "productive" && remote.confidence < 0.8) {
-      await setVerdictInCache(meta.videoId, remote);
-      return { ...remote, verdict: "unproductive", reason: `low-confidence "productive" (${remote.reason}) — during Focus Session, borderline defaults to close`, source: "session_boost" };
+    // Strict-mode confidence threshold: if Claude says "productive" with anything
+    // less than high confidence, treat as unproductive. The whole product is
+    // strict-leaning — ambiguous productive verdicts should default to close.
+    // Sessions push the bar even higher.
+    const minConfidence = sessionActive ? 0.9 : 0.85;
+    if (remote.verdict === "productive" && remote.confidence < minConfidence) {
+      const flipped = {
+        ...remote,
+        verdict: "unproductive",
+        reason: `low-confidence productive (${remote.confidence.toFixed(2)}: ${remote.reason}) — borderline defaults to close`,
+        source: sessionActive ? "session_boost" : "low_confidence_flip"
+      };
+      await setVerdictInCache(meta.videoId, flipped);
+      return flipped;
     }
     await setVerdictInCache(meta.videoId, remote);
     return remote;
@@ -617,7 +628,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "clear_video_cache") {
     (async () => {
       const items = await chrome.storage.local.get(null);
-      const toRemove = Object.keys(items).filter((k) => k.startsWith("v:") || k.startsWith("v2:"));
+      const toRemove = Object.keys(items).filter((k) => k.startsWith("v:") || k.startsWith("v2:") || k.startsWith("v3:"));
       if (toRemove.length > 0) await chrome.storage.local.remove(toRemove);
       sendResponse({ ok: true, removed: toRemove.length });
     })();
