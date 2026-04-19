@@ -1,0 +1,209 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Focus Closer</title>
+<link rel="stylesheet" href="options.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="logo">FC</div>
+    <div>
+      <div class="brand-title">Focus Closer</div>
+      <div class="brand-sub">Auto-closes distractions. Recovers false positives in 5 seconds.</div>
+    </div>
+  </div>
+  <div class="status" id="statusArea">
+    <span class="status-dot" id="statusDot"></span>
+    <span id="statusText">Active</span>
+    <span class="sep"></span>
+    <button class="btn-ghost" id="pauseBtn">Pause 1h</button>
+    <button class="btn-ghost" id="pauseTodayBtn">Pause today</button>
+    <button class="btn-ghost hidden" id="resumeBtn">Resume</button>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="dashboard">Dashboard</button>
+  <button class="tab" data-tab="rules">Rules</button>
+  <button class="tab" data-tab="log">Log</button>
+  <button class="tab" data-tab="help">Help</button>
+</nav>
+
+<main>
+
+<section class="panel" data-panel="dashboard">
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-label">Time saved (last 7d)</div>
+      <div class="stat-value" id="statSaved7d">—</div>
+      <div class="stat-sub" id="statSaved7dSub"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Tabs closed (last 7d)</div>
+      <div class="stat-value" id="statClosed7d">—</div>
+      <div class="stat-sub" id="statClosed7dSub"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Today</div>
+      <div class="stat-value" id="statToday">—</div>
+      <div class="stat-sub" id="statTodaySub"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">All time</div>
+      <div class="stat-value" id="statAll">—</div>
+      <div class="stat-sub" id="statAllSub"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h3>Last 7 days</h3>
+      <span class="card-sub">tabs closed per day</span>
+    </div>
+    <div class="chart" id="chart7d"></div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-header">
+        <h3>Why tabs closed</h3>
+        <span class="card-sub">source breakdown (all time)</span>
+      </div>
+      <div id="sourceBreakdown" class="breakdown"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3>Recent closes</h3>
+        <span class="card-sub">latest 8</span>
+      </div>
+      <div id="recentCloses" class="recent-list">
+        <div class="empty">Loading...</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="panel hidden" data-panel="rules">
+  <div class="card">
+    <div class="card-header"><h3>Anthropic API key</h3></div>
+    <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off" />
+    <div class="help">Stored in chrome.storage.sync. Used only for calls to api.anthropic.com. Needed when local rules can't decide.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h3>Music rule</h3></div>
+    <select id="musicRule">
+      <option value="instrumental_only">Instrumental / lofi / focus music only = productive</option>
+      <option value="all_productive">All music = productive</option>
+      <option value="all_unproductive">All music = unproductive</option>
+    </select>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h3>Blocklist</h3><span class="card-sub">one entry per line</span></div>
+    <textarea id="blocklist"></textarea>
+    <div class="help">
+      Domain: <code>instagram.com</code> blocks the whole domain.<br>
+      Domain + path: <code>linkedin.com/feed</code> blocks <code>/feed</code> and <code>/feed/*</code> but leaves other paths alone.<br>
+      Match is suffix-based on host, prefix-based on path with segment boundary (so <code>/feed</code> ≠ <code>/feedback</code>).
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-header"><h3>Channel whitelist</h3><span class="card-sub">always productive on YouTube</span></div>
+      <textarea id="channelWhitelist"></textarea>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3>Channel blocklist</h3><span class="card-sub">always unproductive on YouTube</span></div>
+      <textarea id="channelBlocklist"></textarea>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h3>Work toggles</h3><span class="card-sub">turn off temporarily when you need these for work</span></div>
+    <label class="toggle"><input id="toggleX" type="checkbox" /> <span>Block X / Twitter</span></label>
+    <label class="toggle"><input id="toggleLinkedIn" type="checkbox" /> <span>Block LinkedIn</span></label>
+  </div>
+
+  <div class="btn-row">
+    <button id="save" class="btn-primary">Save</button>
+    <span id="saveStatus" class="save-status"></span>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h3>Maintenance</h3></div>
+    <div class="btn-row">
+      <button id="clearCache" class="btn-ghost">Clear verdict cache</button>
+      <button id="clearLog" class="btn-ghost">Clear decision log</button>
+    </div>
+    <div class="help">Verdict cache persists Claude classifications per video so re-visits are instant. Clear it to force re-classification.</div>
+  </div>
+</section>
+
+<section class="panel hidden" data-panel="log">
+  <div class="card">
+    <div class="card-header">
+      <h3>Decision log</h3>
+      <span class="card-sub"><span id="logCount">0</span> entries (most recent 1000)</span>
+    </div>
+    <div class="log-controls">
+      <input id="logSearch" placeholder="Filter by title, channel, domain, reason..." />
+      <select id="logVerdict">
+        <option value="all">All verdicts</option>
+        <option value="close">Closed only</option>
+        <option value="keep">Kept only</option>
+      </select>
+      <select id="logKind">
+        <option value="all">All sources</option>
+        <option value="youtube">YouTube</option>
+        <option value="blocklist">Blocklist</option>
+        <option value="user_flag">User flag</option>
+      </select>
+    </div>
+    <div class="log-table-wrap">
+      <table class="log-table">
+        <thead><tr><th>When</th><th>Kind</th><th>Verdict</th><th>Target</th><th>Reason</th><th>Source</th></tr></thead>
+        <tbody id="logBody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="panel hidden" data-panel="help">
+  <div class="card">
+    <div class="card-header"><h3>Keyboard shortcuts</h3></div>
+    <table class="kbd-table">
+      <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd></td><td>Mark current video/tab as distracting and close it</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd></td><td>Pause / resume the extension (1h pause by default)</td></tr>
+      <tr><td><kbd>ESC</kbd></td><td>Dismiss the close popup</td></tr>
+    </table>
+    <div class="help">Rebind at <a href="chrome://extensions/shortcuts" target="_blank">chrome://extensions/shortcuts</a>.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h3>How classification works</h3></div>
+    <ol class="numbered">
+      <li><b>User override</b> — videos you've manually flagged always close; videos you've reopened as false positives always stay.</li>
+      <li><b>Cache</b> — videos classified within the last 30 days use the cached verdict instantly.</li>
+      <li><b>Local rules</b> — channel whitelist / blocklist and keyword matching on title/description. Free, ~0 latency. Covers ~50% of cases.</li>
+      <li><b>Claude Haiku 4.5</b> — remaining ambiguous cases. ~$0.0005/call, ~500ms. Returns <code>productive</code> / <code>unproductive</code> with reason.</li>
+      <li><b>Fail-open</b> — if Claude is unreachable, the tab stays. Never silently break browsing.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h3>Commitment device</h3></div>
+    <div class="help">The extension alone is easy to bypass — Guest mode, Incognito, or a fresh Chrome profile all defeat it. For real enforcement, pair with a Chrome managed policy that disables Guest / Incognito / new profiles. On macOS that lives at <code>/Library/Managed Preferences/com.google.Chrome.plist</code> and requires <code>sudo</code> to install or remove.</div>
+  </div>
+</section>
+
+</main>
+
+<script src="options.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,57 @@
+{
+  "manifest_version": 3,
+  "name": "Focus Closer",
+  "version": "0.1.0",
+  "description": "Auto-closes distracting YouTube videos and blocklist domains. 5-second recovery popup for false positives.",
+  "permissions": [
+    "tabs",
+    "storage",
+    "webNavigation",
+    "notifications",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>",
+    "https://api.anthropic.com/*"
+  ],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["content/youtube.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["*://*.linkedin.com/*"],
+      "css": ["content/linkedin-hide-badges.css"],
+      "run_at": "document_start"
+    }
+  ],
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+  "action": {
+    "default_title": "Focus Closer",
+    "default_popup": "options/options.html"
+  },
+  "commands": {
+    "mark-distracting": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+X",
+        "mac": "Ctrl+Shift+X"
+      },
+      "description": "Mark current tab as distracting and close it"
+    },
+    "toggle-pause": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+P",
+        "mac": "Ctrl+Shift+P"
+      },
+      "description": "Pause / resume Focus Closer (1 hour pause by default)"
+    }
+  }
+}

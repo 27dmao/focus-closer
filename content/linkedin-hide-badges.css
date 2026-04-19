@@ -1,0 +1,15 @@
+/* Hide red count badges on every LinkedIn nav item except Messaging.
+   Scope by href so the rules survive LinkedIn's frequent class-name churn. */
+
+a[href*="/notifications"] [class*="notification-badge"],
+a[href*="/mynetwork"] [class*="notification-badge"],
+a[href="/feed/"] [class*="notification-badge"],
+a[href="/"] [class*="notification-badge"],
+.global-nav__me [class*="notification-badge"],
+[data-test-global-nav-link="nav.notifications"] [class*="notification-badge"],
+[data-test-global-nav-link="nav.mynetwork"] [class*="notification-badge"],
+[data-test-global-nav-link="nav.home"] [class*="notification-badge"],
+[data-test-global-nav-link="nav.me"] [class*="notification-badge"] {
+  display: none !important;
+  visibility: hidden !important;
+}

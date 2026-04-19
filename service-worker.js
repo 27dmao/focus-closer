@@ -1,0 +1,517 @@
+import {
+  getSync,
+  setSync,
+  getVerdictFromCache,
+  setVerdictInCache,
+  isWorkWhitelisted,
+  isVideoOverridden,
+  addVideoOverride,
+  removeVideoOverride,
+  isVideoUserBlocked,
+  addVideoUserBlock,
+  removeVideoUserBlock,
+  getMatchingOverride,
+  setOverride,
+  entryMatchesUrl,
+  parseBlocklistEntry,
+  getPauseState,
+  setPauseState,
+  getOrInitInstallMeta
+} from "./lib/storage.js";
+import { logDecision, getStats, getLog, clearLog } from "./lib/logger.js";
+import { classifyLocally } from "./classifier/rules.js";
+import { classifyWithClaude } from "./classifier/claude.js";
+
+chrome.runtime.onInstalled.addListener(() => { getOrInitInstallMeta(); });
+chrome.runtime.onStartup.addListener(() => { getOrInitInstallMeta(); });
+
+function parseYouTubeUrl(urlStr) {
+  try {
+    const u = new URL(urlStr);
+    if (!u.hostname.endsWith("youtube.com")) return null;
+    if (u.pathname === "/watch") {
+      const v = u.searchParams.get("v");
+      if (v) return { kind: "watch", videoId: v };
+    }
+    if (u.pathname.startsWith("/shorts/")) {
+      const v = u.pathname.split("/")[2];
+      if (v) return { kind: "short", videoId: v };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function hostnameFromUrl(urlStr) {
+  try { return new URL(urlStr).hostname.toLowerCase(); }
+  catch { return ""; }
+}
+
+function parseUrl(urlStr) {
+  try {
+    const u = new URL(urlStr);
+    return { hostname: u.hostname.toLowerCase(), pathname: u.pathname };
+  } catch { return null; }
+}
+
+function findMatchingBlocklistEntry(hostname, pathname, blocklist, toggles) {
+  for (const entry of blocklist) {
+    if (!entryMatchesUrl(entry, hostname, pathname)) continue;
+    const { domain } = parseBlocklistEntry(entry);
+    if (toggles && toggles[domain] === false) continue;
+    return entry;
+  }
+  return null;
+}
+
+async function classifyVideo(meta, settings) {
+  if (await isVideoUserBlocked(meta.videoId)) {
+    return { verdict: "unproductive", source: "user_block", reason: "you flagged this video as distracting", confidence: 1 };
+  }
+  if (await isVideoOverridden(meta.videoId)) {
+    return { verdict: "productive", source: "override", reason: "video marked keep-open by user", confidence: 1 };
+  }
+
+  const cached = await getVerdictFromCache(meta.videoId);
+  if (cached) return { ...cached, source: cached.source || "cache", cached: true };
+
+  const local = classifyLocally(meta, settings);
+  if (local && local.confidence >= 0.85) {
+    await setVerdictInCache(meta.videoId, local);
+    return local;
+  }
+
+  const remote = await classifyWithClaude(meta, settings);
+  if (remote.verdict) {
+    await setVerdictInCache(meta.videoId, remote);
+    return remote;
+  }
+
+  return {
+    verdict: "keep_open",
+    confidence: 0,
+    reason: `classifier unavailable (${remote.error}): ${remote.reason}`,
+    source: "fail_open"
+  };
+}
+
+async function pickPopupTabId(excludeTabId) {
+  const tabs = await chrome.tabs.query({});
+  const candidates = tabs.filter(
+    (t) => t.id !== excludeTabId &&
+           t.url &&
+           !t.url.startsWith("chrome://") &&
+           !t.url.startsWith("chrome-extension://") &&
+           !t.url.startsWith("edge://")
+  );
+  const active = candidates.find((t) => t.active);
+  if (active) return active.id;
+  if (candidates.length > 0) return candidates[0].id;
+  return null;
+}
+
+function popupRendererSource() {
+  return function renderPopup(detail) {
+    const EXISTING_ID = "__focus_closer_popup__";
+    const prev = document.getElementById(EXISTING_ID);
+    if (prev) prev.remove();
+
+    const isYt = detail.kind === "youtube";
+    const isUserFlag = detail.kind === "user_flag";
+    const bg = "#1e1e1e";
+    const accent = isUserFlag ? "#f57c00" : (isYt ? "#c0392b" : "#8e24aa");
+
+    const host = document.createElement("div");
+    host.id = EXISTING_ID;
+    host.style.cssText = [
+      "position:fixed",
+      "bottom:20px",
+      "right:20px",
+      "z-index:2147483647",
+      "font:13px/1.45 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif"
+    ].join(";");
+
+    const card = document.createElement("div");
+    card.style.cssText = [
+      `background:${bg}`,
+      "color:#fff",
+      "padding:14px 16px",
+      "border-radius:10px",
+      "box-shadow:0 8px 28px rgba(0,0,0,0.4)",
+      `border-left:4px solid ${accent}`,
+      "min-width:340px",
+      "max-width:440px"
+    ].join(";");
+
+    const header = document.createElement("div");
+    header.style.cssText = "font-weight:700;letter-spacing:0.5px;margin-bottom:6px;font-size:11px;opacity:0.85;text-transform:uppercase;";
+    header.textContent = isUserFlag ? "Flagged as distracting" : (isYt ? "Closed YouTube video" : `Closed ${detail.matchedEntry || detail.hostname}`);
+    card.appendChild(header);
+
+    const body = document.createElement("div");
+    body.style.cssText = "margin-bottom:4px;opacity:0.95;";
+    if (isYt || isUserFlag) {
+      const t = document.createElement("div");
+      t.style.cssText = "font-weight:600;margin-bottom:2px;";
+      t.textContent = detail.title || "(unknown title)";
+      const c = document.createElement("div");
+      c.style.cssText = "opacity:0.7;font-size:12px;";
+      c.textContent = detail.channel || "";
+      body.appendChild(t);
+      if (detail.channel) body.appendChild(c);
+    }
+    const reason = document.createElement("div");
+    reason.style.cssText = "margin-top:6px;opacity:0.8;font-size:12px;";
+    reason.textContent = detail.reason || "";
+    body.appendChild(reason);
+    card.appendChild(body);
+
+    const actions = document.createElement("div");
+    actions.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;";
+
+    function mkBtn(label, payload, primary) {
+      const b = document.createElement("button");
+      b.textContent = label;
+      b.style.cssText = [
+        "border:0",
+        `background:${primary ? accent : "rgba(255,255,255,0.12)"}`,
+        "color:#fff",
+        "padding:7px 10px",
+        "border-radius:6px",
+        "font:600 12px/1 inherit",
+        "cursor:pointer",
+        "white-space:nowrap"
+      ].join(";");
+      b.addEventListener("mouseenter", () => { b.style.opacity = "0.85"; });
+      b.addEventListener("mouseleave", () => { b.style.opacity = "1"; });
+      b.addEventListener("click", () => {
+        chrome.runtime.sendMessage({ type: "popup_action", payload });
+        cleanup();
+      });
+      return b;
+    }
+
+    if (isUserFlag) {
+      actions.appendChild(mkBtn("Undo", { action: "undo_user_flag", videoId: detail.videoId, url: detail.url }, true));
+      if (detail.channel) actions.appendChild(mkBtn(`Always block "${detail.channel}"`, { action: "always_block_channel", channel: detail.channel }));
+    } else if (isYt) {
+      actions.appendChild(mkBtn("Reopen (false positive)", { action: "reopen_video", videoId: detail.videoId, url: detail.url }, true));
+      if (detail.channel) {
+        actions.appendChild(mkBtn(`Always allow "${detail.channel}"`, { action: "always_allow_channel", channel: detail.channel, videoId: detail.videoId, url: detail.url }));
+      }
+    } else {
+      const entry = detail.matchedEntry || detail.hostname;
+      actions.appendChild(mkBtn("Reopen 60s", { action: "reopen_once", entry, url: detail.url }, true));
+      actions.appendChild(mkBtn("Unblock 30 min", { action: "unblock", entry, url: detail.url, durationMs: 30 * 60 * 1000 }));
+      actions.appendChild(mkBtn("Unblock today", { action: "unblock", entry, url: detail.url, durationMs: 24 * 60 * 60 * 1000 }));
+      actions.appendChild(mkBtn("Unblock forever", { action: "unblock", entry, url: detail.url, durationMs: null }));
+    }
+    card.appendChild(actions);
+
+    const meta = document.createElement("div");
+    meta.style.cssText = "margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center;font-size:10px;opacity:0.55;";
+    const left = document.createElement("span");
+    left.textContent = "ESC or 5s to dismiss · hover to keep";
+    const right = document.createElement("a");
+    right.textContent = "Pause extension";
+    right.href = "#";
+    right.style.cssText = "color:inherit;text-decoration:underline;cursor:pointer;";
+    right.addEventListener("click", (e) => {
+      e.preventDefault();
+      chrome.runtime.sendMessage({ type: "popup_action", payload: { action: "pause", durationMs: 60 * 60 * 1000 } });
+      cleanup();
+    });
+    meta.appendChild(left);
+    meta.appendChild(right);
+    card.appendChild(meta);
+
+    host.appendChild(card);
+    document.documentElement.appendChild(host);
+
+    let remaining = 5000;
+    let lastTick = Date.now();
+    let paused = false;
+    let timer = null;
+
+    function tick() {
+      if (paused) return;
+      const now = Date.now();
+      remaining -= now - lastTick;
+      lastTick = now;
+      if (remaining <= 0) cleanup();
+      else timer = setTimeout(tick, Math.min(remaining, 200));
+    }
+    function cleanup() {
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("keydown", onKey, true);
+      if (host.parentNode) host.remove();
+    }
+    function onKey(e) {
+      if (e.key === "Escape") { e.stopPropagation(); cleanup(); }
+    }
+    host.addEventListener("mouseenter", () => { paused = true; });
+    host.addEventListener("mouseleave", () => { paused = false; lastTick = Date.now(); tick(); });
+    document.addEventListener("keydown", onKey, true);
+    lastTick = Date.now();
+    tick();
+  };
+}
+
+async function showPopup(excludeTabId, detail) {
+  const targetId = await pickPopupTabId(excludeTabId);
+  if (targetId === null) {
+    try {
+      await chrome.notifications.create({
+        type: "basic",
+        iconUrl: chrome.runtime.getURL("icons/icon-128.png"),
+        title: detail.kind === "youtube" ? "Closed YouTube video" : `Closed ${detail.hostname || ""}`,
+        message: (detail.title || detail.hostname || "") + " — " + (detail.reason || "")
+      });
+    } catch {}
+    return;
+  }
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: targetId },
+      func: popupRendererSource(),
+      args: [detail],
+      world: "ISOLATED"
+    });
+  } catch (e) {
+    console.warn("[focus-closer] popup inject failed", e);
+  }
+}
+
+async function closeAndNotify(tabId, detail) {
+  try {
+    await chrome.tabs.remove(tabId);
+  } catch (e) {
+    console.warn("[focus-closer] tab close failed", e);
+  }
+  await showPopup(tabId, detail);
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type === "yt_metadata") {
+    (async () => {
+      const settings = await getSync();
+      const pause = await getPauseState();
+      const { meta } = msg;
+      const result = await classifyVideo(meta, settings);
+
+      await logDecision({
+        kind: "youtube",
+        videoId: meta.videoId,
+        url: sender.tab?.url,
+        title: meta.title,
+        channel: meta.channel,
+        isShort: meta.isShort,
+        lengthSeconds: meta.lengthSeconds || 0,
+        ...result
+      });
+
+      const shouldClose = result.verdict === "unproductive" && !pause.paused;
+      sendResponse({ ok: true, result, willClose: shouldClose, paused: pause.paused });
+
+      if (shouldClose && sender.tab?.id != null) {
+        await closeAndNotify(sender.tab.id, {
+          kind: "youtube",
+          videoId: meta.videoId,
+          url: sender.tab.url,
+          title: meta.title,
+          channel: meta.channel,
+          lengthSeconds: meta.lengthSeconds || 0,
+          reason: result.reason || ""
+        });
+      }
+    })();
+    return true;
+  }
+
+  if (msg?.type === "popup_action") {
+    (async () => {
+      const p = msg.payload || {};
+      if (p.action === "reopen_video") {
+        if (p.videoId) await addVideoOverride(p.videoId);
+        if (p.url) await chrome.tabs.create({ url: p.url });
+      } else if (p.action === "undo_user_flag") {
+        if (p.videoId) {
+          await removeVideoUserBlock(p.videoId);
+          await addVideoOverride(p.videoId);
+        }
+        if (p.url) await chrome.tabs.create({ url: p.url });
+      } else if (p.action === "reopen_once") {
+        if (p.entry) await setOverride(p.entry, 60 * 1000);
+        if (p.url) await chrome.tabs.create({ url: p.url });
+      } else if (p.action === "unblock") {
+        if (p.entry) await setOverride(p.entry, p.durationMs);
+        if (p.url) await chrome.tabs.create({ url: p.url });
+      } else if (p.action === "always_allow_channel") {
+        const settings = await getSync();
+        const list = settings.channelWhitelist || [];
+        if (p.channel && !list.includes(p.channel)) {
+          list.push(p.channel);
+          await setSync({ channelWhitelist: list });
+        }
+        if (p.videoId) await addVideoOverride(p.videoId);
+        if (p.url) await chrome.tabs.create({ url: p.url });
+      } else if (p.action === "always_block_channel") {
+        const settings = await getSync();
+        const list = settings.channelBlocklist || [];
+        if (p.channel && !list.includes(p.channel)) {
+          list.push(p.channel);
+          await setSync({ channelBlocklist: list });
+        }
+      } else if (p.action === "pause") {
+        await setPauseState(p.durationMs, "popup");
+      }
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (msg?.type === "get_dashboard") {
+    (async () => {
+      const [stats, pause, settings, meta] = await Promise.all([
+        getStats(),
+        getPauseState(),
+        getSync(),
+        getOrInitInstallMeta()
+      ]);
+      sendResponse({ stats, pause, settings, installedAt: meta.installedAt });
+    })();
+    return true;
+  }
+
+  if (msg?.type === "get_log") {
+    (async () => {
+      const log = await getLog();
+      sendResponse({ log });
+    })();
+    return true;
+  }
+
+  if (msg?.type === "clear_log") {
+    (async () => { await clearLog(); sendResponse({ ok: true }); })();
+    return true;
+  }
+
+  if (msg?.type === "set_settings") {
+    (async () => {
+      await setSync(msg.partial || {});
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (msg?.type === "set_pause") {
+    (async () => {
+      await setPauseState(msg.durationMs, msg.reason || "manual");
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (msg?.type === "clear_video_cache") {
+    (async () => {
+      const items = await chrome.storage.local.get(null);
+      const toRemove = Object.keys(items).filter((k) => k.startsWith("v:"));
+      if (toRemove.length > 0) await chrome.storage.local.remove(toRemove);
+      sendResponse({ ok: true, removed: toRemove.length });
+    })();
+    return true;
+  }
+});
+
+chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
+  if (details.frameId !== 0) return;
+  const parsed = parseUrl(details.url);
+  if (!parsed) return;
+  const { hostname, pathname } = parsed;
+  if (isWorkWhitelisted(hostname)) return;
+
+  const pause = await getPauseState();
+  if (pause.paused) return;
+
+  const settings = await getSync();
+  const matchedEntry = findMatchingBlocklistEntry(hostname, pathname, settings.blocklist, settings.domainToggles);
+  if (!matchedEntry) return;
+
+  const override = await getMatchingOverride(hostname, pathname);
+  if (override) return;
+
+  await logDecision({
+    kind: "blocklist",
+    hostname,
+    matchedEntry,
+    url: details.url,
+    verdict: "unproductive",
+    reason: `"${matchedEntry}" is on blocklist`,
+    source: "blocklist"
+  });
+
+  await closeAndNotify(details.tabId, {
+    kind: "blocklist",
+    hostname,
+    matchedEntry,
+    url: details.url,
+    reason: `"${matchedEntry}" is on your blocklist`
+  });
+});
+
+chrome.webNavigation.onHistoryStateUpdated.addListener((details) => {
+  if (details.frameId !== 0) return;
+  const parsed = parseYouTubeUrl(details.url);
+  if (!parsed) return;
+  chrome.tabs.sendMessage(details.tabId, { type: "yt_route_change", ...parsed }).catch(() => {});
+}, { url: [{ hostSuffix: "youtube.com" }] });
+
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command === "mark-distracting") {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (!tab || tab.id == null || !tab.url) return;
+
+    const parsed = parseYouTubeUrl(tab.url);
+    const hostname = hostnameFromUrl(tab.url);
+
+    let meta = {};
+    if (parsed) {
+      try {
+        const resp = await chrome.tabs.sendMessage(tab.id, { type: "yt_get_meta" });
+        if (resp?.meta) meta = resp.meta;
+      } catch {}
+      await addVideoUserBlock(parsed.videoId);
+    }
+
+    await logDecision({
+      kind: "user_flag",
+      videoId: parsed?.videoId,
+      url: tab.url,
+      hostname,
+      title: meta.title || tab.title,
+      channel: meta.channel,
+      lengthSeconds: meta.lengthSeconds || 0,
+      verdict: "unproductive",
+      reason: "manually flagged by user",
+      source: "user_flag"
+    });
+
+    await closeAndNotify(tab.id, {
+      kind: "user_flag",
+      videoId: parsed?.videoId,
+      url: tab.url,
+      title: meta.title || tab.title,
+      channel: meta.channel,
+      lengthSeconds: meta.lengthSeconds || 0,
+      reason: parsed ? "you flagged this video — won't reopen unless you Undo" : "you flagged this tab as distracting"
+    });
+    return;
+  }
+
+  if (command === "toggle-pause") {
+    const pause = await getPauseState();
+    if (pause.paused) await setPauseState(0);
+    else await setPauseState(60 * 60 * 1000, "shortcut");
+  }
+});
