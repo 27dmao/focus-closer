@@ -52,50 +52,67 @@ function dayLabel(offset) {
   return d.toLocaleDateString(undefined, { weekday: "short" });
 }
 
-// Attention score (0-100) — three orthogonal components measuring DIFFERENT things.
-// Returns { score, breakdown, refuteRate } or null if insufficient data.
+// Attention score (0-100). v3 actually penalizes high distraction loads instead
+// of rewarding them. Three components:
 //
-// A. ACTIVITY (0-30) — how engaged the system is, log-scaled so it doesn't saturate.
-//    The OLD score saturated at ~27 closes/week, which is why every user hit 100.
+// A. RESISTANCE (0-50)  — INVERSE of closes/day. Fewer distractions hitting the
+//    system = better focus. This is the heavy weight; fundamentally what matters
+//    is "are you mostly avoiding distracting situations" not "are you closing
+//    a lot of tabs."
+//      0/day → 50 (perfect)
+//      4/day → 33
+//      8/day → 25
+//      16/day → 17
+//      40/day → 8
 //
-// B. CALIBRATION (0-40) — the most important signal. Of all the closes the system
-//    made, how many did the user accept (didn't refute)? High = classifier matches
-//    your taste. Low = classifier is making mistakes you keep correcting.
+// B. CALIBRATION (0-30) — % closes you didn't refute. Measures whether the
+//    classifier matches your actual taste.
 //
-// C. TIME SAVED (0-30) — log-scaled minutes saved. Caps at 8h+ for the week.
-function computeAttentionScore(stats, log) {
+// C. TRAINING (0-20)    — log-scale of feedback signals (X/S/refute) given in
+//    the last 7d. Active training = better classifier going forward. Caps so
+//    it can't dominate.
+function computeAttentionScore(stats, log, feedbackCounts) {
   const closes = stats.closedLast7 || 0;
   const seconds = stats.secondsSavedLast7 || 0;
-  if (closes === 0 && seconds === 0) return null;
+  if (closes === 0 && seconds === 0 && (feedbackCounts?.flags || 0) + (feedbackCounts?.allows || 0) === 0) {
+    return null;
+  }
 
-  // A. Activity: log-scaled close count. 1 close → 5pt, 5 → 13, 20 → 24, 50+ → 30.
-  const activity = Math.min(30, Math.log(closes + 1) * 8.5);
+  // A. Resistance — inverted distraction load. closes/day with hyperbolic decay.
+  const closesPerDay = closes / 7;
+  const resistance = 50 / (1 + closesPerDay / 8);
 
   // B. Calibration from refute rate.
   const WEEK = 7 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
   const recentCloses = (log || []).filter((e) =>
-    Date.now() - e.at <= WEEK &&
+    now - e.at <= WEEK &&
     (e.verdict === "unproductive" || e.kind === "blocklist" || e.kind === "user_flag")
   );
   const refutedCount = recentCloses.filter((e) => e.refutedAt).length;
   const refuteRate = recentCloses.length > 0 ? refutedCount / recentCloses.length : 0;
   const calibration = recentCloses.length === 0
-    ? 20 // neutral if no recent data
-    : Math.max(0, 40 * (1 - refuteRate));
+    ? 15 // neutral if no recent data
+    : Math.max(0, 30 * (1 - refuteRate));
 
-  // C. Time saved: log-scaled. 30min → 10, 2h → 20, 8h+ → 30.
-  const timeSaved = Math.min(30, Math.log((seconds / 60) + 1) * 6);
+  // C. Training — count recent flag/allow/refute events.
+  const recentTraining = (log || []).filter((e) =>
+    now - e.at <= WEEK &&
+    (e.kind === "user_flag" || e.kind === "user_allow" || e.refutedAt)
+  ).length;
+  const training = Math.min(20, Math.log(recentTraining + 1) * 7);
 
   return {
-    score: Math.round(activity + calibration + timeSaved),
+    score: Math.round(resistance + calibration + training),
     breakdown: {
-      activity: Math.round(activity),
+      resistance: Math.round(resistance),
       calibration: Math.round(calibration),
-      timeSaved: Math.round(timeSaved)
+      training: Math.round(training)
     },
     refuteRate,
     refutedCount,
-    totalCloses: recentCloses.length
+    totalCloses: recentCloses.length,
+    closesPerDay: closesPerDay.toFixed(1)
   };
 }
 
@@ -339,7 +356,7 @@ async function refreshDashboard() {
   const stats = data.stats;
   const log = logResp?.log || [];
 
-  const scoreResult = computeAttentionScore(stats, log);
+  const scoreResult = computeAttentionScore(stats, log, data.feedbackCounts);
   const scoreEl = $("attentionScore");
   const subEl = $("attentionSub");
   if (scoreResult == null) {
@@ -350,9 +367,9 @@ async function refreshDashboard() {
     const b = scoreResult.breakdown;
     const refutePct = (scoreResult.refuteRate * 100).toFixed(0);
     const refuteNote = scoreResult.totalCloses > 0
-      ? ` · ${scoreResult.refutedCount}/${scoreResult.totalCloses} refuted (${refutePct}%)`
-      : "";
-    subEl.innerHTML = `Activity ${b.activity}/30 · <span title="Lower refute rate = classifier matches your taste">Calibration ${b.calibration}/40</span> · Time saved ${b.timeSaved}/30${refuteNote}`;
+      ? `${scoreResult.refutedCount}/${scoreResult.totalCloses} refuted (${refutePct}%)`
+      : "no closes";
+    subEl.innerHTML = `<span title="Lower distractions/day = better focus. ${scoreResult.closesPerDay}/day this week">Resistance ${b.resistance}/50</span> · <span title="Lower refute rate = classifier matches your taste">Calibration ${b.calibration}/30</span> · <span title="Active feedback (X / S / refute) trains the model">Training ${b.training}/20</span> · ${refuteNote}`;
   }
   const daysSinceInstall = Math.max(1, Math.round((Date.now() - data.installedAt) / (24 * 60 * 60 * 1000)));
 
