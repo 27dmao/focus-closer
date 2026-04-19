@@ -173,7 +173,14 @@ async function refreshStatusBar() {
   }
 }
 
+// Policy card is a CALL TO ACTION, not a permanent display. Show only when
+// there's something for the user to do (5+ feedback signals to distill). Hide
+// when the policy is up-to-date and nothing new has accumulated. The actual
+// policy can be inspected via the System Prompt editor on the Rules tab.
+const POLICY_CTA_THRESHOLD = 5;
+
 function renderPolicy(policy, feedbackCounts) {
+  const card = $("policyCard");
   const meta = $("policyMeta");
   const summary = $("policySummary");
   const rulesEl = $("policyRules");
@@ -184,20 +191,30 @@ function renderPolicy(policy, feedbackCounts) {
   const allows = feedbackCounts?.allows || 0;
   const total = flags + allows;
   const unreflected = feedbackCounts?.unreflected || 0;
+  const hasPolicy = !!(policy && Array.isArray(policy.rules) && policy.rules.length > 0);
 
-  if (!policy || !Array.isArray(policy.rules) || policy.rules.length === 0) {
-    if (total === 0) {
-      meta.textContent = "No feedback yet — use ⌘+Shift+X / ⌘+Shift+S on a few videos and the system will learn your taste.";
-    } else if (total < 4) {
-      meta.textContent = `${total} pieces of feedback so far — ${4 - total} more and the system will distill your first policy automatically.`;
-    } else {
-      meta.textContent = `${total} pieces of feedback ready to distill — click "Re-distill" below to generate your first policy.`;
-    }
+  // Decide whether to show the card at all.
+  // - No policy + <5 feedback → hide (nothing actionable).
+  // - No policy + ≥5 feedback → show (CTA to distill first policy).
+  // - Policy exists + 0–4 unreflected → hide (no new work needed).
+  // - Policy exists + ≥5 unreflected → show (CTA to re-distill).
+  const shouldShow = hasPolicy
+    ? (unreflected >= POLICY_CTA_THRESHOLD)
+    : (total >= POLICY_CTA_THRESHOLD);
+
+  if (!shouldShow) {
+    if (card) card.classList.add("hidden");
+    return;
+  }
+  if (card) card.classList.remove("hidden");
+
+  if (!hasPolicy) {
+    meta.textContent = `${total} pieces of feedback ready to distill — click "Re-distill" to generate your first policy.`;
     return;
   }
 
   const ago = formatRelativeTime(policy.updatedAt || policy.generatedAt);
-  meta.textContent = `Distilled from ${policy.feedbackCount || total} feedback signals · updated ${ago}${unreflected > 0 ? ` · ${unreflected} new since` : ""}`;
+  meta.textContent = `${unreflected} new feedback signal${unreflected === 1 ? "" : "s"} since last distillation (${ago}). Re-distill to incorporate them.`;
 
   if (policy.summary) summary.textContent = policy.summary;
   for (const rule of policy.rules) {
@@ -488,7 +505,55 @@ async function loadRules() {
   $("toggleLinkedIn").checked = settings.domainToggles?.["linkedin.com"] !== false;
   $("classifierModel").value = settings.classifierModel || DEFAULT_MODEL;
   $("monthlyBudget").value = settings.monthlyBudgetUsd ?? 5;
+  await loadSystemPrompt(settings);
   updateLatencyWarning();
+}
+
+async function loadSystemPrompt(settings) {
+  const ta = $("systemPrompt");
+  const badge = $("promptStatusBadge");
+  if (!ta) return;
+  const custom = (settings.customSystemPrompt || "").trim();
+  if (custom.length > 50) {
+    ta.value = custom;
+    badge.textContent = "Custom";
+    badge.classList.add("custom");
+  } else {
+    const res = await send("get_default_system_prompt");
+    ta.value = res?.prompt || "";
+    badge.textContent = "Default";
+    badge.classList.remove("custom");
+  }
+}
+
+async function saveSystemPrompt() {
+  const ta = $("systemPrompt");
+  const status = $("promptSaveStatus");
+  const text = (ta.value || "").trim();
+  if (text.length < 100) {
+    status.textContent = "Prompt looks too short — paste the full instructions or click Reset to default.";
+    status.style.color = "var(--unproductive)";
+    return;
+  }
+  // Compare against default — if identical, store empty (use default).
+  const defaultRes = await send("get_default_system_prompt");
+  const isDefault = defaultRes?.prompt && text === defaultRes.prompt.trim();
+  await send("set_settings", { partial: { customSystemPrompt: isDefault ? "" : text } });
+  status.textContent = isDefault ? "Saved as default ✓" : "Custom prompt saved ✓";
+  status.style.color = "";
+  setTimeout(() => (status.textContent = ""), 2500);
+  // Also clear the verdict cache so future classifications use the new prompt.
+  await send("clear_video_cache");
+  loadRules();
+}
+
+async function resetSystemPrompt() {
+  if (!confirm("Reset to the default system prompt? Your customizations will be lost.")) return;
+  await send("set_settings", { partial: { customSystemPrompt: "" } });
+  await send("clear_video_cache");
+  loadRules();
+  $("promptSaveStatus").textContent = "Reset to default ✓";
+  setTimeout(() => ($("promptSaveStatus").textContent = ""), 2500);
 }
 
 function updateLatencyWarning() {
@@ -597,6 +662,8 @@ async function applyBrief() {
   refreshDashboard();
 }
 $("briefApplyBtn").addEventListener("click", applyBrief);
+$("savePromptBtn").addEventListener("click", saveSystemPrompt);
+$("resetPromptBtn").addEventListener("click", resetSystemPrompt);
 
 // Sessions
 $("sessionStartBtn").addEventListener("click", async () => {

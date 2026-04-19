@@ -298,6 +298,22 @@
     <span id="saveStatus" class="save-status"></span>
   </div>
 
+  <div class="card prompt-card">
+    <div class="card-header">
+      <h3>System prompt</h3>
+      <span class="card-sub" id="promptStatusBadge">Default</span>
+    </div>
+    <div class="help" style="margin-top:0;margin-bottom:10px;">
+      The exact instructions Claude reads on every classification. Edit at your own risk — the default is carefully tuned. Your personal policy and recent feedback are still appended to every call automatically.
+    </div>
+    <textarea id="systemPrompt" class="prompt-textarea" rows="20" spellcheck="false" placeholder="Loading..."></textarea>
+    <div class="btn-row" style="margin-top:10px;">
+      <button class="btn-primary" id="savePromptBtn">Save custom prompt</button>
+      <button class="btn-ghost" id="resetPromptBtn">Reset to default</button>
+      <span id="promptSaveStatus" class="save-status"></span>
+    </div>
+  </div>
+
   <div class="card">
     <div class="card-header"><h3>Maintenance</h3></div>
     <div class="btn-row">

@@ -5,6 +5,15 @@ const ENDPOINT = "https://api.anthropic.com/v1/messages";
 const MAX_TOKENS = 200;
 
 function buildSystemPrompt(settings) {
+  // User-customizable override. If they've edited the prompt on the Rules tab,
+  // use it verbatim. Otherwise generate the default tuned prompt.
+  if (settings.customSystemPrompt && settings.customSystemPrompt.trim().length > 50) {
+    return settings.customSystemPrompt;
+  }
+  return getDefaultSystemPrompt(settings);
+}
+
+export function getDefaultSystemPrompt(settings) {
   const musicRule = {
     instrumental_only: `Music: ONLY instrumental/lofi/focus/study/ambient/classical-for-study = productive. Vocal songs, music videos = unproductive.`,
     all_productive: `Music: any music video = productive.`,

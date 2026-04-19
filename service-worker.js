@@ -30,7 +30,7 @@ import {
 } from "./lib/storage.js";
 import { logDecision, getStats, getLog, clearLog, removeLogEntry, getLogEntry, markLogEntryRefuted } from "./lib/logger.js";
 import { classifyLocally } from "./classifier/rules.js";
-import { classifyWithClaude } from "./classifier/claude.js";
+import { classifyWithClaude, getDefaultSystemPrompt } from "./classifier/claude.js";
 import { distillPolicy } from "./classifier/policy.js";
 import { parseBrief } from "./classifier/brief.js";
 
@@ -535,6 +535,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       await clearPersonalPolicy();
       sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (msg?.type === "get_default_system_prompt") {
+    (async () => {
+      const settings = await getSync();
+      sendResponse({ ok: true, prompt: getDefaultSystemPrompt(settings) });
     })();
     return true;
   }
