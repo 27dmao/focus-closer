@@ -287,6 +287,22 @@ kbd {
 .dur input { display: none; }
 .dur span { font-size: 15px; font-weight: 700; }
 .dur small { color: var(--text-mute); font-size: 11px; }
+
+.custom-duration-row {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.custom-duration-row label { font-weight: 600; font-size: 13px; margin: 0; }
+.custom-duration-row input { width: 90px; margin: 0; }
+.custom-duration-unit { color: var(--text-mute); font-size: 12px; }
+.session-fields:has(input[name="dur"][value="custom"]:checked) .custom-duration-row { display: flex; }
+
 .btn-lg { padding: 12px 20px; font-size: 14px; }
 
 .dots { margin: 0; padding-left: 18px; color: var(--text-dim); }

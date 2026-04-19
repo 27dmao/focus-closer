@@ -202,7 +202,12 @@
         <label class="dur"><input type="radio" name="dur" value="1500000" checked><span>25 min</span><small>Pomodoro</small></label>
         <label class="dur"><input type="radio" name="dur" value="3000000"><span>50 min</span><small>Deep work</small></label>
         <label class="dur"><input type="radio" name="dur" value="5400000"><span>90 min</span><small>Ultradian</small></label>
-        <label class="dur"><input type="radio" name="dur" value="custom"><span>Custom</span><small><input id="sessionCustomMin" type="number" min="5" max="240" placeholder="min" style="width:60px;"/></small></label>
+        <label class="dur"><input type="radio" name="dur" value="custom"><span>Custom</span><small>Any length</small></label>
+      </div>
+      <div class="custom-duration-row" id="customDurationRow">
+        <label for="sessionCustomMin">Duration</label>
+        <input id="sessionCustomMin" type="number" min="5" max="240" placeholder="e.g., 45" />
+        <span class="custom-duration-unit">minutes (5–240)</span>
       </div>
       <button class="btn-primary btn-lg" id="sessionStartBtn">Start session</button>
     </div>

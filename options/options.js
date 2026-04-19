@@ -179,11 +179,17 @@ async function refreshStatusBar() {
 // policy can be inspected via the System Prompt editor on the Rules tab.
 const POLICY_CTA_THRESHOLD = 5;
 
+// Set to a timestamp when a distillation just succeeded; the card stays visible
+// for ~2 seconds afterwards showing "0 new pieces — up to date" so the user
+// gets a clear before/after, then auto-hides on the next refresh.
+let _justDistilledAt = 0;
+
 function renderPolicy(policy, feedbackCounts) {
   const card = $("policyCard");
   const meta = $("policyMeta");
   const summary = $("policySummary");
   const rulesEl = $("policyRules");
+  const reflectBtn = $("reflectBtn");
   rulesEl.innerHTML = "";
   summary.textContent = "";
 
@@ -192,21 +198,47 @@ function renderPolicy(policy, feedbackCounts) {
   const total = flags + allows;
   const unreflected = feedbackCounts?.unreflected || 0;
   const hasPolicy = !!(policy && Array.isArray(policy.rules) && policy.rules.length > 0);
+  const justDistilled = Date.now() - _justDistilledAt < 2000;
+
+  // Update the button text + enabled state to reflect what would happen if clicked.
+  if (reflectBtn) {
+    if (unreflected === 0) {
+      reflectBtn.textContent = hasPolicy ? "No new feedback to distill" : "Re-distill from feedback";
+      reflectBtn.disabled = true;
+    } else {
+      reflectBtn.textContent = `Re-distill (${unreflected} new piece${unreflected === 1 ? "" : "s"})`;
+      reflectBtn.disabled = false;
+    }
+  }
 
   // Decide whether to show the card at all.
   // - No policy + <5 feedback → hide (nothing actionable).
   // - No policy + ≥5 feedback → show (CTA to distill first policy).
   // - Policy exists + 0–4 unreflected → hide (no new work needed).
   // - Policy exists + ≥5 unreflected → show (CTA to re-distill).
-  const shouldShow = hasPolicy
+  // Special case: just distilled → keep the card visible briefly for the
+  // confirmation message, even though normal logic says hide.
+  const shouldShow = justDistilled || (hasPolicy
     ? (unreflected >= POLICY_CTA_THRESHOLD)
-    : (total >= POLICY_CTA_THRESHOLD);
+    : (total >= POLICY_CTA_THRESHOLD));
 
   if (!shouldShow) {
     if (card) card.classList.add("hidden");
     return;
   }
   if (card) card.classList.remove("hidden");
+
+  if (justDistilled && hasPolicy && unreflected === 0) {
+    const n = policy.rules.length;
+    meta.textContent = `Distilled ${n} rule${n === 1 ? "" : "s"} ✓ — 0 new pieces of feedback remaining. Up to date.`;
+    if (policy.summary) summary.textContent = policy.summary;
+    for (const rule of policy.rules) {
+      const li = document.createElement("li");
+      li.textContent = rule;
+      rulesEl.appendChild(li);
+    }
+    return;
+  }
 
   if (!hasPolicy) {
     meta.textContent = `${total} pieces of feedback ready to distill — click "Re-distill" to generate your first policy.`;
@@ -753,19 +785,35 @@ $("viewPromptLink").addEventListener("click", (e) => {
 });
 
 // Sessions
-$("sessionStartBtn").addEventListener("click", async () => {
+async function startSession() {
   const task = $("sessionTask").value.trim() || "Deep work";
   const checked = document.querySelector('input[name="dur"]:checked');
   let durationMs = parseInt(checked.value, 10);
   if (checked.value === "custom") {
     const min = parseInt($("sessionCustomMin").value, 10);
-    if (!min || min < 5) { alert("Enter a duration (≥5 min)."); return; }
+    if (!min || min < 5 || min > 240) {
+      alert("Enter a custom duration between 5 and 240 minutes.");
+      $("sessionCustomMin").focus();
+      return;
+    }
     durationMs = min * 60 * 1000;
   }
   await send("start_session", { durationMs, task, strictBoost: true });
   $("sessionTask").value = "";
   refreshStatusBar();
   document.querySelector('.tab[data-tab="dashboard"]').click();
+}
+$("sessionStartBtn").addEventListener("click", startSession);
+document.querySelectorAll('input[name="dur"]').forEach((r) => {
+  r.addEventListener("change", () => {
+    if (r.value === "custom" && r.checked) $("sessionCustomMin").focus();
+  });
+});
+$("sessionCustomMin").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); startSession(); }
+});
+$("sessionTask").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); startSession(); }
 });
 $("sessionEndBtn").addEventListener("click", async () => {
   await send("end_session");
@@ -810,19 +858,30 @@ $("reflectBtn").addEventListener("click", async () => {
   btn.textContent = "Distilling…";
   status.textContent = "";
   const res = await send("run_reflection");
-  btn.disabled = false;
-  btn.textContent = "Re-distill from feedback";
   if (!res?.ok) {
+    btn.disabled = false;
+    btn.textContent = "Re-distill from feedback";
     const err = res?.error || res?.policy;
     status.textContent = (err?.reason || err?.error || "Distillation failed.") + " (check Anthropic API key + balance)";
     status.style.color = "var(--unproductive)";
-  } else {
-    const n = res.policy?.rules?.length || 0;
-    status.textContent = `Distilled ${n} rule${n === 1 ? "" : "s"} ✓`;
-    status.style.color = "";
-    setTimeout(() => (status.textContent = ""), 3000);
+    refreshDashboard();
+    return;
   }
-  refreshDashboard();
+
+  // Mark the success window so renderPolicy keeps the card visible briefly
+  // with "0 new pieces — up to date" before normal hide-logic kicks in.
+  _justDistilledAt = Date.now();
+  const n = res.policy?.rules?.length || 0;
+  status.textContent = `Distilled ${n} rule${n === 1 ? "" : "s"} ✓`;
+  status.style.color = "";
+
+  // Render once now (shows the success state).
+  await refreshDashboard();
+  // After 2s, render again — the success window has expired so the card hides.
+  setTimeout(() => {
+    status.textContent = "";
+    refreshDashboard();
+  }, 2200);
 });
 $("clearPolicyBtn").addEventListener("click", async () => {
   if (!confirm("Clear the learned policy? Feedback history is preserved — you can re-distill anytime.")) return;
