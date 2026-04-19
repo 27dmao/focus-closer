@@ -22,16 +22,52 @@ import {
   getInsightsCache,
   setInsightsCache,
   recordFeedback,
-  getFeedbackHistory
+  getFeedbackHistory,
+  getUnreflectedCount,
+  markReflected,
+  REFLECTION_THRESHOLD,
+  getPersonalPolicy,
+  setPersonalPolicy,
+  clearPersonalPolicy
 } from "./lib/storage.js";
 import { logDecision, getStats, getLog, clearLog, removeLogEntry, getLogEntry } from "./lib/logger.js";
 import { generateSuggestions } from "./lib/suggestions.js";
 import { classifyLocally } from "./classifier/rules.js";
 import { classifyWithClaude } from "./classifier/claude.js";
 import { generateInsights } from "./classifier/insights.js";
+import { distillPolicy } from "./classifier/policy.js";
 
 chrome.runtime.onInstalled.addListener(() => { getOrInitInstallMeta(); });
 chrome.runtime.onStartup.addListener(() => { getOrInitInstallMeta(); });
+
+// Run a policy reflection if the user has accumulated enough new feedback
+// since the last reflection. Idempotent and cheap to call. Always returns
+// the (possibly updated) policy.
+async function maybeRunReflection({ force = false } = {}) {
+  const settings = await getSync();
+  if (!settings.apiKey) return await getPersonalPolicy();
+
+  const unreflected = await getUnreflectedCount();
+  if (!force && unreflected < REFLECTION_THRESHOLD) return await getPersonalPolicy();
+
+  const history = await getFeedbackHistory();
+  const result = await distillPolicy(history, settings.apiKey);
+  if (result.error) {
+    console.warn("[focus-closer] reflection failed:", result.error, result.reason);
+    return await getPersonalPolicy();
+  }
+  await setPersonalPolicy(result);
+  await markReflected();
+  return result;
+}
+
+// Helper to also record a feedback signal whenever any X/S action happens —
+// then opportunistically kick off a reflection in the background.
+async function recordAndMaybeReflect(verdict, entry) {
+  await recordFeedback(verdict, entry);
+  // Fire-and-forget reflection. Doesn't block the caller.
+  maybeRunReflection().catch((e) => console.warn("[focus-closer] reflection bg error:", e));
+}
 
 function parseYouTubeUrl(urlStr) {
   try {
@@ -109,7 +145,8 @@ async function classifyVideo(meta, settings, sessionActive) {
   }
 
   const history = await getFeedbackHistory();
-  const remote = await classifyWithClaude(meta, settings, history);
+  const policy = await getPersonalPolicy();
+  const remote = await classifyWithClaude(meta, settings, history, policy);
   if (remote.verdict) {
     // Strict-mode confidence threshold: if Claude says "productive" with anything
     // less than high confidence, treat as unproductive. The whole product is
@@ -468,17 +505,41 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg?.type === "get_dashboard") {
     (async () => {
-      const [stats, settings, meta, session, insights, log] = await Promise.all([
+      const [stats, settings, meta, session, insights, log, policy, history, unreflected] = await Promise.all([
         getStats(),
         getSync(),
         getOrInitInstallMeta(),
         getSessionState(),
         getInsightsCache(),
-        getLog()
+        getLog(),
+        getPersonalPolicy(),
+        getFeedbackHistory(),
+        getUnreflectedCount()
       ]);
       const suggestions = generateSuggestions(log, settings);
       const heatmap = buildHourHeatmap(log);
-      sendResponse({ stats, settings, installedAt: meta.installedAt, session, insights, suggestions, heatmap });
+      const feedbackCounts = {
+        flags: history.flags?.length || 0,
+        allows: history.allows?.length || 0,
+        unreflected
+      };
+      sendResponse({ stats, settings, installedAt: meta.installedAt, session, insights, suggestions, heatmap, policy, feedbackCounts });
+    })();
+    return true;
+  }
+
+  if (msg?.type === "run_reflection") {
+    (async () => {
+      const result = await maybeRunReflection({ force: true });
+      sendResponse({ ok: true, policy: result });
+    })();
+    return true;
+  }
+
+  if (msg?.type === "clear_personal_policy") {
+    (async () => {
+      await clearPersonalPolicy();
+      sendResponse({ ok: true });
     })();
     return true;
   }
@@ -585,7 +646,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               await setSync({ channelWhitelist: wl });
             }
           }
-          if (entry.title) await recordFeedback("productive", { title: entry.title, channel: entry.channel, videoId: entry.videoId });
+          if (entry.title) await recordAndMaybeReflect("productive", { title: entry.title, channel: entry.channel, videoId: entry.videoId });
           sendResponse({ ok: true, action: "video_whitelisted" });
         } else {
           // Wrongly kept — user-block the video + the channel (if we have it)
@@ -599,7 +660,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               await setSync({ channelBlocklist: bl });
             }
           }
-          if (entry.title) await recordFeedback("unproductive", { title: entry.title, channel: entry.channel, videoId: entry.videoId });
+          if (entry.title) await recordAndMaybeReflect("unproductive", { title: entry.title, channel: entry.channel, videoId: entry.videoId });
           sendResponse({ ok: true, action: "video_blocked" });
         }
         return;
@@ -628,7 +689,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "clear_video_cache") {
     (async () => {
       const items = await chrome.storage.local.get(null);
-      const toRemove = Object.keys(items).filter((k) => k.startsWith("v:") || k.startsWith("v2:") || k.startsWith("v3:"));
+      const toRemove = Object.keys(items).filter((k) => k.startsWith("v:") || k.startsWith("v2:") || k.startsWith("v3:") || k.startsWith("v4:"));
       if (toRemove.length > 0) await chrome.storage.local.remove(toRemove);
       sendResponse({ ok: true, removed: toRemove.length });
     })();
@@ -708,11 +769,30 @@ chrome.commands.onCommand.addListener(async (command) => {
       // Record this flag as a few-shot example for Claude. Future videos
       // that resemble this title's shape/topic/vibe will close even from
       // unfamiliar channels.
-      await recordFeedback("unproductive", { title: meta.title || tab.title, channel: meta.channel, videoId: parsed.videoId });
+      await recordAndMaybeReflect("unproductive", { title: meta.title || tab.title, channel: meta.channel, videoId: parsed.videoId });
+    } else if (tab.url) {
+      // Non-YouTube tab: also a flagging signal. Record domain + title so the
+      // policy reflection can derive cross-domain rules ("close any X-style
+      // site"), and also auto-add the hostname to the blocklist.
+      let domainAutoBlocked = false;
+      const settings = await getSync();
+      const list = settings.blocklist || [];
+      if (!list.includes(hostname)) {
+        list.push(hostname);
+        await setSync({ blocklist: list });
+        domainAutoBlocked = true;
+      }
+      await recordAndMaybeReflect("unproductive", { title: tab.title || hostname, hostname, url: tab.url });
+      // Override the reason for the close popup since flow falls through to closeAndNotify
+      meta.title = tab.title;
+      // Replace the channel-based reason text below.
+      meta._domainAutoBlocked = domainAutoBlocked;
     }
 
     const reason = !parsed
-      ? "you flagged this tab as distracting"
+      ? (meta._domainAutoBlocked
+          ? `flagged — also blocked "${hostname}" site-wide. Undo to revert.`
+          : `flagged "${hostname}" — already on blocklist`)
       : channelAutoBlocked
         ? `flagged — also blocked channel "${meta.channel}". Undo to revert both.`
         : meta.channel
@@ -837,7 +917,7 @@ chrome.commands.onCommand.addListener(async (command) => {
       } catch {}
       const { channelAdded, channelRemoved } = await commitAllow({ videoId: parsed.videoId, channel: meta.channel });
       const reason = buildAllowReason(meta.channel, channelAdded, channelRemoved, "preempt");
-      await recordFeedback("productive", { title: meta.title || tab.title, channel: meta.channel, videoId: parsed.videoId });
+      await recordAndMaybeReflect("productive", { title: meta.title || tab.title, channel: meta.channel, videoId: parsed.videoId });
       await logDecision({
         kind: "user_allow",
         videoId: parsed.videoId,
@@ -869,8 +949,8 @@ chrome.commands.onCommand.addListener(async (command) => {
         const { channelAdded } = await commitAllow({ videoId: recent.videoId, channel: recent.channel });
         reason = buildAllowReason(recent.channel, channelAdded, false, "undo");
       }
-      if (recent.title) {
-        await recordFeedback("productive", { title: recent.title, channel: recent.channel, videoId: recent.videoId });
+      if (recent.title || recent.hostname) {
+        await recordAndMaybeReflect("productive", { title: recent.title, channel: recent.channel, videoId: recent.videoId, hostname: recent.hostname, url: recent.url });
       }
       await logDecision({
         kind: "user_allow",

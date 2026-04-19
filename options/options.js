@@ -91,6 +91,40 @@ async function refreshStatusBar() {
   }
 }
 
+function renderPolicy(policy, feedbackCounts) {
+  const meta = $("policyMeta");
+  const summary = $("policySummary");
+  const rulesEl = $("policyRules");
+  rulesEl.innerHTML = "";
+  summary.textContent = "";
+
+  const flags = feedbackCounts?.flags || 0;
+  const allows = feedbackCounts?.allows || 0;
+  const total = flags + allows;
+  const unreflected = feedbackCounts?.unreflected || 0;
+
+  if (!policy || !Array.isArray(policy.rules) || policy.rules.length === 0) {
+    if (total === 0) {
+      meta.textContent = "No feedback yet — use ⌘+Shift+X / ⌘+Shift+S on a few videos and the system will learn your taste.";
+    } else if (total < 4) {
+      meta.textContent = `${total} pieces of feedback so far — ${4 - total} more and the system will distill your first policy automatically.`;
+    } else {
+      meta.textContent = `${total} pieces of feedback ready to distill — click "Re-distill" below to generate your first policy.`;
+    }
+    return;
+  }
+
+  const ago = formatRelativeTime(policy.updatedAt || policy.generatedAt);
+  meta.textContent = `Distilled from ${policy.feedbackCount || total} feedback signals · updated ${ago}${unreflected > 0 ? ` · ${unreflected} new since` : ""}`;
+
+  if (policy.summary) summary.textContent = policy.summary;
+  for (const rule of policy.rules) {
+    const li = document.createElement("li");
+    li.textContent = rule;
+    rulesEl.appendChild(li);
+  }
+}
+
 function renderSuggestions(suggestions) {
   const card = $("suggestionsCard");
   const host = $("suggestions");
@@ -218,6 +252,7 @@ async function refreshDashboard() {
     chart.appendChild(col);
   }
 
+  renderPolicy(data.policy, data.feedbackCounts);
   renderSuggestions(data.suggestions);
   renderHeatmap(data.heatmap);
 
@@ -550,6 +585,30 @@ $("replayOnboarding").addEventListener("click", async () => {
   $("onboarding").classList.remove("hidden");
 });
 $("insightsGenerate").addEventListener("click", generateInsights);
+$("reflectBtn").addEventListener("click", async () => {
+  const btn = $("reflectBtn");
+  const status = $("reflectStatus");
+  btn.disabled = true;
+  btn.textContent = "Distilling…";
+  status.textContent = "";
+  const res = await send("run_reflection");
+  btn.disabled = false;
+  btn.textContent = "Re-distill from feedback";
+  if (res?.policy?.error) {
+    status.textContent = res.policy.reason || res.policy.error;
+    status.style.color = "var(--unproductive)";
+  } else {
+    status.textContent = "Updated ✓";
+    status.style.color = "";
+    setTimeout(() => (status.textContent = ""), 2500);
+  }
+  refreshDashboard();
+});
+$("clearPolicyBtn").addEventListener("click", async () => {
+  if (!confirm("Clear the learned policy? Feedback history is preserved — you can re-distill anytime.")) return;
+  await send("clear_personal_policy");
+  refreshDashboard();
+});
 ["logSearch", "logVerdict", "logKind"].forEach((id) => {
   $(id).addEventListener("input", renderLog);
   $(id).addEventListener("change", renderLog);

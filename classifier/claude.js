@@ -107,8 +107,9 @@ CHANNEL ROLE — secondary tiebreaker ONLY:
 
 ${musicRule}
 
-DECISION ALGORITHM:
-1. Read the title. Match against the 16 unproductive patterns. If ANY match → unproductive at confidence ≥ 0.9, done.
+DECISION ALGORITHM (in priority order):
+0. THE USER'S PERSONAL POLICY (when included in the message above) is the HIGHEST priority signal. If a personal-policy rule applies, follow it — that rule was derived from this user's actual flagged feedback. Reference the matching rule in your reason field.
+1. Read the title. Match against the 16 generic unproductive patterns. If ANY match → unproductive at confidence ≥ 0.9, done.
 2. Does the title AFFIRMATIVELY look like structured learning per the productive criteria (course unit numbers, named technical subjects, lecture format, named-researcher interviews)? If clearly yes → productive at confidence ≥ 0.85.
 3. Borderline (you find yourself reasoning "this MIGHT be educational") → check channel. Famous academic source (Stanford, MIT, Khan Academy, 3Blue1Brown, Karpathy, Lex Fridman, YC) → productive. Anything else → unproductive.
 4. When in doubt, ALWAYS choose unproductive. False positives recover in 5 seconds; false negatives waste an hour.
@@ -122,16 +123,14 @@ Respond with ONLY a JSON object, no prose:
 {"verdict": "productive" | "unproductive", "confidence": 0.0-1.0, "reason": "<one short sentence stating which pattern (P#) or productive criterion applies>"}`;
 }
 
-function buildUserPrompt(meta, history) {
+function buildUserPrompt(meta, history, policy) {
   const desc = (meta.description || "").slice(0, 500);
   const tags = (meta.tags || []).slice(0, 15).join(", ");
 
-  // Personalized few-shot from the user's actual flag/allow history.
-  // This is the LEARNING loop: every X/S press becomes context Claude reasons
-  // over. After ~10 flags Claude internalizes the user's specific taste.
+  const policyBlock = formatPolicyBlock(policy);
   const historyBlock = formatHistoryBlock(history);
 
-  return `${historyBlock}NOW CLASSIFY:
+  return `${policyBlock}${historyBlock}NOW CLASSIFY:
 Title: ${meta.title || "(unknown)"}
 Channel: ${meta.channel || "(unknown)"}
 Category: ${meta.category || "(unknown)"}
@@ -139,34 +138,44 @@ Tags: ${tags || "(none)"}
 Description (first 500 chars): ${desc || "(empty)"}`;
 }
 
-function formatHistoryBlock(history) {
-  if (!history) return "";
-  const flags = (history.flags || []).slice(-12);
-  const allows = (history.allows || []).slice(-8);
-  if (flags.length === 0 && allows.length === 0) return "";
-
-  const parts = ["THIS USER'S RECENT FEEDBACK — weight these heavily as ground truth for their personal taste:"];
-  if (flags.length) {
-    parts.push("");
-    parts.push("Marked DISTRACTING (close anything similar in shape, topic, or vibe):");
-    for (const e of flags) {
-      parts.push(`  • "${e.title}"${e.channel ? `  —  ${e.channel}` : ""}`);
-    }
-  }
-  if (allows.length) {
-    parts.push("");
-    parts.push("Marked PRODUCTIVE (keep anything similar in shape, topic, or vibe):");
-    for (const e of allows) {
-      parts.push(`  • "${e.title}"${e.channel ? `  —  ${e.channel}` : ""}`);
-    }
-  }
-  parts.push("");
-  parts.push("If the new video resembles ANY flagged item by topic, format, or clickbait pattern, choose unproductive even if the channel is unfamiliar.");
+function formatPolicyBlock(policy) {
+  if (!policy || !Array.isArray(policy.rules) || policy.rules.length === 0) return "";
+  const parts = [
+    "USER'S PERSONAL POLICY — derived from their flag/allow history. Apply these BEFORE the generic patterns below. If the new video matches any rule here, that rule decides.",
+    ""
+  ];
+  for (const r of policy.rules) parts.push(`  • ${r}`);
   parts.push("");
   return parts.join("\n") + "\n";
 }
 
-export async function classifyWithClaude(meta, settings, history) {
+function formatHistoryBlock(history) {
+  if (!history) return "";
+  // After distillation, recent raw history is mostly redundant with the policy.
+  // Show a short tail anyway so very-recent flags are reflected before the next
+  // reflection pass runs.
+  const flags = (history.flags || []).slice(-8);
+  const allows = (history.allows || []).slice(-4);
+  if (flags.length === 0 && allows.length === 0) return "";
+
+  const parts = ["RECENT RAW FEEDBACK (since the last policy distillation):"];
+  if (flags.length) {
+    parts.push("Closed:");
+    for (const e of flags) {
+      parts.push(`  • "${e.title || e.hostname || e.url}"${e.channel ? `  —  ${e.channel}` : ""}`);
+    }
+  }
+  if (allows.length) {
+    parts.push("Kept:");
+    for (const e of allows) {
+      parts.push(`  • "${e.title || e.hostname || e.url}"${e.channel ? `  —  ${e.channel}` : ""}`);
+    }
+  }
+  parts.push("");
+  return parts.join("\n") + "\n";
+}
+
+export async function classifyWithClaude(meta, settings, history, policy) {
   if (!settings.apiKey) {
     return {
       verdict: null,
@@ -185,7 +194,7 @@ export async function classifyWithClaude(meta, settings, history) {
         cache_control: { type: "ephemeral" }
       }
     ],
-    messages: [{ role: "user", content: buildUserPrompt(meta, history) }]
+    messages: [{ role: "user", content: buildUserPrompt(meta, history, policy) }]
   };
 
   try {

@@ -280,6 +280,20 @@ kbd {
 .insights-content .section-label:first-child { margin-top: 0; }
 .insights-content .error { color: var(--unproductive); }
 
+.policy-card {
+  border-color: rgba(62, 207, 142, 0.3);
+  background: linear-gradient(135deg, var(--bg-elev), rgba(62, 207, 142, 0.04));
+}
+.policy-summary { color: var(--text-dim); font-size: 13px; line-height: 1.55; margin-bottom: 12px; }
+.policy-summary:empty { display: none; }
+.policy-rules { list-style: none; padding: 0; margin: 0 0 12px; display: flex; flex-direction: column; gap: 6px; }
+.policy-rules li {
+  font-size: 13px; color: var(--text); padding: 8px 12px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  border-left: 3px solid var(--productive);
+}
+.policy-rules:empty { display: none; }
+
 .suggestions-card { border-color: rgba(255, 107, 74, 0.35); background: linear-gradient(135deg, var(--bg-elev), rgba(255, 107, 74, 0.04)); }
 .suggestions-card.hidden { display: none; }
 .suggestions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
