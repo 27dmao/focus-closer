@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Focus Closer — The AI bouncer for your browser</title>
-<meta name="description" content="A Chrome extension that auto-closes distracting tabs before you can scroll them. Claude-powered YouTube classifier, path-level blocklist, 5-second false-positive recovery." />
+<title>Focus Closer — A self-improving attention firewall for your browser</title>
+<meta name="description" content="Chrome extension that auto-closes distracting tabs. Claude classifies every YouTube video. Every keyboard correction compounds permanently — the model learns YOUR taste." />
 <meta property="og:title" content="Focus Closer" />
-<meta property="og:description" content="The AI bouncer for your browser. Closes distractions before you scroll them." />
+<meta property="og:description" content="A self-improving attention firewall for your browser. The model learns YOUR taste." />
 <meta property="og:image" content="icons/icon-128.png" />
 <link rel="icon" type="image/png" href="icons/icon-128.png" />
 <style>
@@ -30,16 +30,8 @@
   code { background: var(--bg-3); padding: 2px 6px; border-radius: 4px; color: var(--accent); }
   kbd { background: var(--bg-3); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font-size: 12px; }
 
-  .bg-orb {
-    position: fixed; top: -200px; right: -200px; width: 600px; height: 600px;
-    background: radial-gradient(circle, var(--accent) 0%, transparent 70%);
-    opacity: 0.18; pointer-events: none; z-index: 0;
-  }
-  .bg-orb-2 {
-    position: fixed; bottom: -300px; left: -200px; width: 600px; height: 600px;
-    background: radial-gradient(circle, var(--accent-2) 0%, transparent 70%);
-    opacity: 0.12; pointer-events: none; z-index: 0;
-  }
+  .bg-orb { position: fixed; top: -200px; right: -200px; width: 600px; height: 600px; background: radial-gradient(circle, var(--accent) 0%, transparent 70%); opacity: 0.18; pointer-events: none; z-index: 0; }
+  .bg-orb-2 { position: fixed; bottom: -300px; left: -200px; width: 600px; height: 600px; background: radial-gradient(circle, var(--accent-2) 0%, transparent 70%); opacity: 0.12; pointer-events: none; z-index: 0; }
 
   .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
 
@@ -51,25 +43,12 @@
   .nav-links a:hover { color: var(--text); text-decoration: none; }
 
   .hero { padding: 80px 0 100px; text-align: center; }
-  .hero-kicker {
-    display: inline-block; font-size: 13px; font-weight: 600; color: var(--accent);
-    background: rgba(255, 107, 74, 0.12); padding: 6px 14px; border-radius: 100px;
-    border: 1px solid rgba(255, 107, 74, 0.3); margin-bottom: 28px;
-    letter-spacing: 0.02em;
-  }
-  .hero h1 {
-    font-size: clamp(40px, 7vw, 84px); line-height: 1.02;
-    letter-spacing: -0.04em; font-weight: 800; margin-bottom: 22px;
-  }
+  .hero-kicker { display: inline-block; font-size: 13px; font-weight: 600; color: var(--accent); background: rgba(255, 107, 74, 0.12); padding: 6px 14px; border-radius: 100px; border: 1px solid rgba(255, 107, 74, 0.3); margin-bottom: 28px; letter-spacing: 0.02em; }
+  .hero h1 { font-size: clamp(40px, 7vw, 84px); line-height: 1.02; letter-spacing: -0.04em; font-weight: 800; margin-bottom: 22px; }
   .hero h1 .grad { background: linear-gradient(135deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .hero p.lede { font-size: 20px; color: var(--text-dim); max-width: 640px; margin: 0 auto 40px; line-height: 1.5; }
+  .hero p.lede { font-size: 20px; color: var(--text-dim); max-width: 660px; margin: 0 auto 40px; line-height: 1.5; }
   .cta-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
-  .btn {
-    display: inline-flex; align-items: center; gap: 8px;
-    padding: 14px 26px; border-radius: 10px; font-weight: 700; font-size: 15px;
-    border: 0; cursor: pointer; transition: transform 0.08s, opacity 0.15s;
-    text-decoration: none;
-  }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 14px 26px; border-radius: 10px; font-weight: 700; font-size: 15px; border: 0; cursor: pointer; transition: transform 0.08s, opacity 0.15s; text-decoration: none; }
   .btn:hover { text-decoration: none; transform: translateY(-1px); }
   .btn-primary { background: var(--accent); color: #000; }
   .btn-primary:hover { background: #ff8363; }
@@ -80,81 +59,41 @@
   section h2 { font-size: clamp(28px, 4vw, 44px); letter-spacing: -0.03em; font-weight: 700; margin-bottom: 20px; max-width: 760px; }
   section .lede { font-size: 18px; color: var(--text-dim); max-width: 720px; margin-bottom: 44px; }
 
-  .problem-table {
-    width: 100%; border-collapse: collapse; background: var(--bg-2);
-    border: 1px solid var(--border); border-radius: 14px; overflow: hidden; font-size: 16px;
-  }
-  .problem-table th, .problem-table td { padding: 16px 22px; text-align: left; }
-  .problem-table th { background: var(--bg-3); font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
-  .problem-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
-  .problem-table tr { border-bottom: 1px solid var(--border); }
-  .problem-table tr:last-child { border-bottom: 0; }
-  .problem-table .mutter { color: var(--text-mute); font-size: 13px; }
-
-  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-  .feature {
-    background: var(--bg-2); border: 1px solid var(--border); border-radius: 14px;
-    padding: 28px; transition: border 0.15s;
-  }
-  .feature:hover { border-color: var(--accent); }
-  .feature-icon { width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); margin-bottom: 16px; display: grid; place-items: center; font-weight: 800; color: #000; font-size: 18px; }
-  .feature h3 { font-size: 18px; letter-spacing: -0.01em; margin-bottom: 8px; }
-  .feature p { color: var(--text-dim); font-size: 14px; line-height: 1.6; }
-
-  .arch {
-    background: var(--bg-2); border: 1px solid var(--border); border-radius: 14px; padding: 32px;
-  }
-  .arch pre {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;
-    color: var(--text-dim); line-height: 1.55; overflow-x: auto; white-space: pre;
-  }
-
-  .pillars { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .pillars { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; }
   .pillar { background: var(--bg-2); border: 1px solid var(--border); border-radius: 14px; padding: 28px; }
   .pillar h3 { font-size: 17px; margin-bottom: 10px; letter-spacing: -0.01em; }
   .pillar p { color: var(--text-dim); font-size: 14px; line-height: 1.6; }
   .pillar .num { font-size: 11px; color: var(--accent); font-weight: 700; letter-spacing: 0.08em; margin-bottom: 10px; text-transform: uppercase; }
 
-  .cost {
-    background: linear-gradient(135deg, var(--bg-2), var(--bg-3));
-    border: 1px solid var(--border); border-radius: 14px; padding: 40px;
-    text-align: center;
-  }
-  .cost .big { font-size: 64px; font-weight: 800; letter-spacing: -0.03em; background: linear-gradient(135deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .cost .sub { color: var(--text-dim); margin-top: 10px; font-size: 16px; }
-  .cost .breakdown { margin-top: 24px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: var(--text-mute); line-height: 1.7; }
+  .loop { background: var(--bg-2); border: 1px solid var(--border); border-radius: 14px; padding: 36px; }
+  .loop pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: var(--text-dim); line-height: 1.55; overflow-x: auto; white-space: pre; }
 
-  .roadmap { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-  .roadmap-item {
-    background: var(--bg-2); border: 1px solid var(--border); border-radius: 12px; padding: 20px;
-  }
-  .roadmap-item h3 { font-size: 15px; margin-bottom: 6px; }
-  .roadmap-item p { color: var(--text-dim); font-size: 13px; line-height: 1.55; }
-  .roadmap-tag {
-    display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
-    padding: 3px 8px; border-radius: 4px; text-transform: uppercase; margin-bottom: 10px;
-  }
-  .roadmap-tag.next { background: rgba(255, 107, 74, 0.15); color: var(--accent); border: 1px solid rgba(255, 107, 74, 0.4); }
-  .roadmap-tag.later { background: var(--bg-3); color: var(--text-dim); border: 1px solid var(--border); }
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .feature { background: var(--bg-2); border: 1px solid var(--border); border-radius: 14px; padding: 28px; transition: border 0.15s; }
+  .feature:hover { border-color: var(--accent); }
+  .feature-icon { width: 40px; height: 40px; border-radius: 10px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); margin-bottom: 16px; display: grid; place-items: center; font-weight: 800; color: #000; font-size: 18px; }
+  .feature h3 { font-size: 18px; letter-spacing: -0.01em; margin-bottom: 8px; }
+  .feature p { color: var(--text-dim); font-size: 14px; line-height: 1.6; }
+
+  .teach-table { width: 100%; border-collapse: collapse; background: var(--bg-2); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; font-size: 15px; }
+  .teach-table th, .teach-table td { padding: 16px 22px; text-align: left; vertical-align: top; }
+  .teach-table th { background: var(--bg-3); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); font-weight: 600; }
+  .teach-table tr { border-bottom: 1px solid var(--border); }
+  .teach-table tr:last-child { border-bottom: 0; }
+  .teach-table .what { font-weight: 700; color: var(--text); white-space: nowrap; }
+
+  .convergence { background: linear-gradient(135deg, var(--bg-2), var(--bg-3)); border: 1px solid var(--border); border-radius: 14px; padding: 40px; text-align: center; }
+  .convergence .big { font-size: 56px; font-weight: 800; letter-spacing: -0.03em; background: linear-gradient(135deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; line-height: 1.05; }
+  .convergence .sub { color: var(--text-dim); margin-top: 14px; font-size: 16px; max-width: 620px; margin-left: auto; margin-right: auto; }
 
   .install-steps { display: flex; flex-direction: column; gap: 14px; }
-  .install-step {
-    display: flex; gap: 16px; padding: 18px 22px;
-    background: var(--bg-2); border: 1px solid var(--border); border-radius: 12px;
-  }
-  .install-step .num {
-    width: 32px; height: 32px; border-radius: 50%;
-    background: var(--accent); color: #000; display: grid; place-items: center;
-    font-weight: 800; flex-shrink: 0;
-  }
+  .install-step { display: flex; gap: 16px; padding: 18px 22px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 12px; }
+  .install-step .num { width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: #000; display: grid; place-items: center; font-weight: 800; flex-shrink: 0; }
 
-  footer {
-    padding: 40px 0 60px; border-top: 1px solid var(--border);
-    color: var(--text-mute); font-size: 13px; text-align: center;
-  }
+  footer { padding: 40px 0 60px; border-top: 1px solid var(--border); color: var(--text-mute); font-size: 13px; text-align: center; }
 
   @media (max-width: 780px) {
-    .features, .pillars, .roadmap { grid-template-columns: 1fr; }
+    .features, .pillars { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -167,153 +106,153 @@
 <header>
   <div class="logo"><img src="icons/icon-128.png" alt="" /> Focus Closer</div>
   <div class="nav-links">
-    <a href="#problem">Problem</a>
-    <a href="#how">How it works</a>
+    <a href="#how">How it learns</a>
+    <a href="#features">Features</a>
     <a href="#install">Install</a>
     <a href="https://github.com/27dmao/focus-closer">GitHub</a>
   </div>
 </header>
 
 <section class="hero" style="border-top:0;">
-  <span class="hero-kicker">Built in a weekend. Runs on Claude.</span>
-  <h1>The AI <span class="grad">bouncer</span><br>for your browser.</h1>
-  <p class="lede">A Chrome extension that auto-closes distracting tabs before you can scroll them. Claude Haiku classifies every YouTube video in ~500ms. False positives recover in 5 seconds.</p>
+  <span class="hero-kicker">Built on Claude · Open source · MIT</span>
+  <h1>An attention firewall<br>that <span class="grad">learns you</span>.</h1>
+  <p class="lede">Chrome extension that auto-closes distracting tabs before you scroll them. Claude classifies every YouTube video against rules distilled from <em>your</em> feedback. Every correction compounds permanently — eventually you stop needing to flag.</p>
   <div class="cta-row">
-    <a class="btn btn-primary" href="#install">Install it →</a>
+    <a class="btn btn-primary" href="#install">Install →</a>
     <a class="btn btn-ghost" href="https://github.com/27dmao/focus-closer">View source</a>
   </div>
 </section>
 
-<section id="problem">
-  <h2>I was watching 48 YouTube videos a day.</h2>
-  <p class="lede">I queried my own Chrome history. Last 90 days, top visited domains:</p>
-  <table class="problem-table">
-    <thead><tr><th>Domain</th><th>What it is</th><th>Visits</th></tr></thead>
-    <tbody>
-      <tr><td>linkedin.com</td><td class="mutter">Sales outreach + occasional doomscroll</td><td>6,283</td></tr>
-      <tr><td>youtube.com</td><td class="mutter">Lectures, or Minecraft. Depends on the day.</td><td>4,354</td></tr>
-      <tr><td>instagram.com</td><td class="mutter">Zero defense of this one.</td><td>3,760</td></tr>
-      <tr><td>x.com</td><td class="mutter">Startup Twitter. Mostly.</td><td>2,974</td></tr>
-      <tr><td>facebook.com</td><td class="mutter">Legacy habit.</td><td>889</td></tr>
-    </tbody>
-  </table>
-  <p class="lede" style="margin-top:40px;">Instagram and X are always distractions — a domain block is fine. LinkedIn is mostly work. YouTube is the hard one: the <em>same URL pattern</em> (<code>/watch</code>) holds both Khan Academy and Minecraft. A blunt block is wrong. That's where an LLM earns its keep.</p>
-</section>
-
 <section id="how">
-  <h2>Two subsystems. One 5-second recovery loop.</h2>
-  <p class="lede">LLM-classifying every tab is expensive, slow, and risks misfiring on your Gmail. So Focus Closer has two engines — a cheap blocklist handles obvious distractions; Claude handles only the ambiguous content at <code>youtube.com/watch</code>.</p>
+  <h2>The model learns your taste, then applies it forever.</h2>
+  <p class="lede">Three layers stack on every classification. The bottom two compound from your keyboard feedback — you don't have to repeat yourself.</p>
 
-  <div class="arch">
-<pre>          ┌─────────────────┐
-  nav →   │  Service worker │  ← popup actions (reopen, unblock, always allow)
-          │   (coordinator) │
-          └────────┬────────┘
-                   │
-       ┌───────────┴───────────┐
-       ▼                       ▼
-   YouTube?              Domain on blocklist?
-       │                       │
-       ▼                       ▼
-  ┌─────────┐           ┌──────────────┐
-  │ content │ metadata  │  close tab   │
-  │ script  │──────────►│  + log       │
-  └─────────┘           └──────┬───────┘
-       │                       │
-       ▼                       ▼
-  ┌──────────────────────────────────────┐
-  │  Classify waterfall:                 │
-  │  1. User override                    │
-  │  2. Cache (30d)                      │
-  │  3. Local rules (channels + keywords)│
-  │  4. Claude Haiku 4.5                 │
-  │  5. Fail-open on error               │
-  └────────────┬─────────────────────────┘
-               │
-          unproductive?
-               │
-               ▼
-     Close tab + inject popup
-     on the next active tab</pre>
+  <div class="pillars">
+    <div class="pillar">
+      <div class="num">Layer 1</div>
+      <h3>Hard rules</h3>
+      <p>Shorts always close. Channels you've explicitly whitelisted/blocklisted resolve instantly. Domains in your blocklist (Instagram, X, etc.) close before the page renders. Zero LLM cost.</p>
+    </div>
+    <div class="pillar">
+      <div class="num">Layer 2</div>
+      <h3>Personal policy</h3>
+      <p>5–12 imperative rules distilled from your flag history (e.g., <em>"Close UFC, MMA, and combat-sports highlights"</em>). Generated by Claude Sonnet from your last 200 corrections. Travels with every classification.</p>
+    </div>
+    <div class="pillar">
+      <div class="num">Layer 3</div>
+      <h3>Claude Haiku 4.5</h3>
+      <p>For everything the rules + policy don't cover. ~500ms, ~$0.001/call. Strict-leaning prompt: burden of proof on the productive side. Low-confidence productive verdicts auto-flip to close.</p>
+    </div>
   </div>
 
   <div style="margin-top:60px;">
-    <h2 style="font-size:28px;margin-bottom:28px;">The four design calls that matter</h2>
-    <div class="pillars">
-      <div class="pillar">
-        <div class="num">01 — Strictness</div>
-        <h3>Close first, recover after.</h3>
-        <p>Asking "are you sure?" before every close is exhausting and trains you to dismiss the modal. Close immediately with a visible Reopen button — only the actual false positives cost you 2 seconds.</p>
-      </div>
-      <div class="pillar">
-        <div class="num">02 — Architecture</div>
-        <h3>Not every tab needs an LLM.</h3>
-        <p>Two independent subsystems: an instant-close blocklist for always-distracting sites, and a Claude classifier for the one place LLM reasoning earns its keep — YouTube's mixed productive/unproductive stream.</p>
-      </div>
-      <div class="pillar">
-        <div class="num">03 — Granularity</div>
-        <h3>Path-level, not domain-level.</h3>
-        <p><code>linkedin.com/feed</code> is a doomscroll surface. <code>linkedin.com/messaging</code> is how leads reach out. The blocklist distinguishes them, with work-whitelist hardcoded for Gmail, Calendar, Claude, Apollo, Symbal, and the rest.</p>
-      </div>
-      <div class="pillar">
-        <div class="num">04 — Learning</div>
-        <h3>The classifier gets smarter each week.</h3>
-        <p>Every popup offers "Always allow this channel" / "Always block this channel" — one click teaches the system forever. AI weekly insights analyze your log and surface patterns you wouldn't notice on your own.</p>
-      </div>
+    <h2 style="font-size:28px;margin-bottom:24px;">The learning loop</h2>
+    <div class="loop">
+<pre>                ┌──────────────────────────────────┐
+                │  YOU                             │
+                │  ⌘+Shift+X (this is distracting) │
+                │  ⌘+Shift+S (this is productive)  │
+                └────────────────┬─────────────────┘
+                                 │
+                  ┌──────────────▼──────────────────┐
+                  │  Feedback history (200 entries) │
+                  │  videoId · title · channel      │
+                  └──────────────┬──────────────────┘
+                                 │ every 5 new signals
+                                 ▼
+                  ┌─────────────────────────────────┐
+                  │  Reflection pass (Sonnet 4.6)   │
+                  │  "Distill this user's taste     │
+                  │   into 5–12 imperative rules"   │
+                  └──────────────┬──────────────────┘
+                                 │
+                                 ▼
+                  ┌─────────────────────────────────┐
+                  │  Personal policy                │
+                  │  • Close UFC / combat highlights│
+                  │  • Close 'I [verb]' clickbait   │
+                  │  • Keep AP exam prep            │
+                  │  • Keep YC founder interviews   │
+                  └──────────────┬──────────────────┘
+                                 │ rides every classification
+                                 ▼
+                  ┌─────────────────────────────────┐
+                  │  Future videos classify with    │
+                  │  YOUR rules baked in            │
+                  └─────────────────────────────────┘</pre>
     </div>
   </div>
 </section>
 
+<section id="teach">
+  <h2>Three ways to teach the model.</h2>
+  <p class="lede">Every signal flows into the same feedback history that drives the reflection. You can correct individual decisions, bulk-train in plain English, or just press a key while you browse.</p>
+  <table class="teach-table">
+    <thead><tr><th>Mechanism</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="what"><kbd>⌘+Shift+X</kbd></td>
+        <td>Flags the current tab as distracting. Closes it. For YouTube: adds the channel to blocklist + records the title for the next reflection. For other domains: adds the hostname to blocklist.</td>
+      </tr>
+      <tr>
+        <td class="what"><kbd>⌘+Shift+S</kbd></td>
+        <td>Flags the current tab as productive. If you just had something close, it undoes the close (within 5 min) and whitelists the video + channel.</td>
+      </tr>
+      <tr>
+        <td class="what">Train by description</td>
+        <td>Plain English on the Rules tab: <em>"I scroll Instagram, MrBeast videos suck me in, I check email compulsively, I get sucked into chess highlights."</em> Claude parses it into domains, channels, and policy rules.</td>
+      </tr>
+      <tr>
+        <td class="what">Refute (Log tab)</td>
+        <td>Per-row button on every classification in the log. "I disagree with this verdict" — flips the policy going forward. Refuted rows show a green pill and persist across reloads.</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
 <section>
+  <h2>Onboarding probes you for a head start.</h2>
+  <p class="lede">First-run is one screen with a guided probe. Skip everything if you want — the system learns from your keyboard either way. Answer what you can and the AI compresses your answers into starting rules.</p>
+  <div class="pillars">
+    <div class="pillar"><div class="num">Q1</div><h3>Which websites distract you most?</h3><p>Bare names work — Claude maps "Twitter" to <code>x.com</code> + <code>twitter.com</code> automatically.</p></div>
+    <div class="pillar"><div class="num">Q2</div><h3>What kinds of YouTube videos suck you in?</h3><p>Channels, topics, formats, vibes. The parser captures shape, not just specific creators.</p></div>
+    <div class="pillar"><div class="num">Q3</div><h3>What kinds of YouTube content IS productive?</h3><p>Drives the channel whitelist + "keep" policy rules. Equally important as the negative signals.</p></div>
+  </div>
+  <p class="lede" style="margin-top:32px;">Email and core work tools (Gmail, Calendar, Slack, GitHub, AI assistants) are hardcode-protected from accidental blocks — you can't lock yourself out by accident.</p>
+</section>
+
+<section id="features">
   <h2>Features</h2>
   <div class="features">
-    <div class="feature"><div class="feature-icon">★</div><h3>Claude classifier</h3><p>Reads title, channel, description, tags. Returns productive/unproductive with reason. ~500ms, ~$0.0005 per call.</p></div>
-    <div class="feature"><div class="feature-icon">⏻</div><h3>Focus Sessions</h3><p>Timer-based deep work mode. 25/50/90-min presets. During a session, the classifier runs stricter and cache bypasses. End-of-session toast tells you how many distractions got blocked.</p></div>
-    <div class="feature"><div class="feature-icon">✦</div><h3>AI Insights</h3><p>Claude reads your last 7 days of closes and writes a personalized brief: pattern observed, biggest attention leak, one thing to try. Nothing else in this space does this.</p></div>
-    <div class="feature"><div class="feature-icon">↻</div><h3>5-second recovery</h3><p>False positives aren't punishing. Reopen button restores the tab and teaches the override. ESC to dismiss. Hover to pause timer.</p></div>
-    <div class="feature"><div class="feature-icon">☐</div><h3>Attention score</h3><p>Single number, trends over time. Behavior-change products work because progress is legible.</p></div>
-    <div class="feature"><div class="feature-icon">⌘</div><h3>Keyboard-native</h3><p><kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd> marks distracting. <kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> marks productive. Each press updates the channel lists, so the classifier converges fast.</p></div>
-    <div class="feature"><div class="feature-icon">⌇</div><h3>Path-level blocklist</h3><p><code>linkedin.com/feed</code> blocked, <code>linkedin.com/messaging</code> untouched. Granularity without fiddling.</p></div>
-    <div class="feature"><div class="feature-icon">◎</div><h3>Commitment device</h3><p>Pairs with a macOS Chrome managed policy that disables Guest mode, Incognito, and new-profile creation — requires <code>sudo</code> to install and remove.</p></div>
+    <div class="feature"><div class="feature-icon">★</div><h3>Personal policy reflection</h3><p>Sonnet 4.6 reads your last 200 flags and compresses your taste into 5–12 imperative rules every 5 new corrections. Haiku fallback if Sonnet is unreachable.</p></div>
+    <div class="feature"><div class="feature-icon">⚡</div><h3>Claude Haiku 4.5 classifier</h3><p>Per-video. Reads title, channel, description, tags. Prompt-cached. Personal policy + recent feedback baked into every call.</p></div>
+    <div class="feature"><div class="feature-icon">↻</div><h3>5-second recovery popup</h3><p>False positives aren't punishing. Reopen restores the tab + teaches the override. ESC dismisses. Hover pauses the timer.</p></div>
+    <div class="feature"><div class="feature-icon">🔍</div><h3>Editable system prompt</h3><p>See exactly what Claude reads on every classification. Customize freely. Reset to default anytime. Full transparency, full control.</p></div>
+    <div class="feature"><div class="feature-icon">🛠</div><h3>Train by description</h3><p>Plain English in, structured rules out. Claude parses your description into blocklist domains, channel-block entries, and policy rules.</p></div>
+    <div class="feature"><div class="feature-icon">⌘</div><h3>Keyboard-native</h3><p><kbd>⌘+Shift+X</kbd> flag distracting · <kbd>⌘+Shift+S</kbd> flag productive. Every press updates channel lists AND feeds reflection.</p></div>
+    <div class="feature"><div class="feature-icon">$</div><h3>Cost dashboard</h3><p>Live spend vs. budget donut. Per-model projections (Haiku/Sonnet/Opus). Switch the classifier model from the dashboard.</p></div>
+    <div class="feature"><div class="feature-icon">📊</div><h3>Attention score + heatmap</h3><p>Single number trended over time. 7×24 heatmap of when you get distracted. Source breakdown for every close.</p></div>
+    <div class="feature"><div class="feature-icon">⚖</div><h3>Refute any decision</h3><p>Per-row button on every entry in the log. Flip the policy going forward. Refuted rows show a green pill and persist across reloads.</p></div>
   </div>
 </section>
 
 <section>
-  <h2>Cost</h2>
-  <p class="lede">Claude Haiku 4.5 only runs on ambiguous videos. Local rules and cache cover most of the load.</p>
-  <div class="cost">
-    <div class="big">~$0.30 / month</div>
-    <div class="sub">at typical use (50 YouTube visits/day)</div>
-    <div class="breakdown">
-      ~50 YT visits/day × 50% LLM hit rate × $0.0005/call<br>
-      ≈ $0.01/day ≈ $0.30/month<br>
-      <br>
-      Blocklist closes are free. Cache hits are free.
-    </div>
+  <h2>Convergence</h2>
+  <p class="lede">After ~30 corrections spanning your distraction shapes, the policy + channel rules + Shorts handle the vast majority of your traffic. Claude calls become rare and high-confidence.</p>
+  <div class="convergence">
+    <div class="big">~$1.50/month</div>
+    <div class="sub">at typical use after the model converges. Most closes hit the channel/policy fast path. Claude only fires for genuinely-novel content.</div>
   </div>
 </section>
 
 <section id="install">
   <h2>Install</h2>
-  <p class="lede">Five minutes. No build step, no dependencies, no server. Pure vanilla JS + Manifest V3.</p>
+  <p class="lede">Five minutes. No build step. No server. Pure vanilla JS + Manifest V3.</p>
   <div class="install-steps">
     <div class="install-step"><div class="num">1</div><div><b>Clone the repo</b><br><code>git clone https://github.com/27dmao/focus-closer</code></div></div>
-    <div class="install-step"><div class="num">2</div><div><b>Load unpacked in Chrome</b><br>Open <code>chrome://extensions</code> → turn on Developer mode → Load unpacked → select the repo folder.</div></div>
-    <div class="install-step"><div class="num">3</div><div><b>Onboarding will prompt you</b> for your Anthropic API key. Get one at <a href="https://console.anthropic.com">console.anthropic.com</a>. Budget $5 — that's over a year at your rate.</div></div>
-    <div class="install-step"><div class="num">4</div><div><b>Optional but recommended: commitment device.</b> See the README for the macOS Chrome managed policy that disables Guest/Incognito/new-profile creation. Requires <code>sudo</code>.</div></div>
-  </div>
-</section>
-
-<section>
-  <h2>What this becomes</h2>
-  <p class="lede">Attention is becoming the scarcest resource in the knowledge economy. There's a product wedge here — for individuals, teams, and eventually enterprise. Roadmap if this turns into a company:</p>
-  <div class="roadmap">
-    <div class="roadmap-item"><span class="roadmap-tag next">Next</span><h3>Sync across devices</h3><p>Blocklist, channel rules, and attention score sync via Chrome's built-in sync. Mostly free.</p></div>
-    <div class="roadmap-item"><span class="roadmap-tag next">Next</span><h3>Firefox + Edge</h3><p>MV3 is cross-browser. ~2 days of porting work.</p></div>
-    <div class="roadmap-item"><span class="roadmap-tag later">Later</span><h3>Team tier</h3><p>Shared blocklists, admin-pushed focus policies, team attention dashboards. Priced per seat.</p></div>
-    <div class="roadmap-item"><span class="roadmap-tag later">Later</span><h3>Mobile companion</h3><p>iOS Screen Time API integration. A mobile app that syncs the same rules.</p></div>
-    <div class="roadmap-item"><span class="roadmap-tag later">Later</span><h3>Calendar integration</h3><p>Auto-start Focus Sessions during meetings or blocked calendar time.</p></div>
-    <div class="roadmap-item"><span class="roadmap-tag later">Later</span><h3>Accountability partner</h3><p>Opt-in weekly digest to a chosen contact. Social pressure as commitment device.</p></div>
+    <div class="install-step"><div class="num">2</div><div><b>Load unpacked in Chrome</b><br>Open <code>chrome://extensions</code> → enable Developer mode → Load unpacked → select the repo folder.</div></div>
+    <div class="install-step"><div class="num">3</div><div><b>Onboarding asks you 4 quick probing questions</b> + your Anthropic API key (get one at <a href="https://console.anthropic.com">console.anthropic.com</a>; new accounts need a one-time credit purchase).</div></div>
+    <div class="install-step"><div class="num">4</div><div><b>Start browsing.</b> When something gets misclassified, hit <kbd>⌘+Shift+X</kbd> or <kbd>⌘+Shift+S</kbd>. Within ~30 corrections the model converges to your taste.</div></div>
   </div>
 </section>
 

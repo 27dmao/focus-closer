@@ -316,6 +316,11 @@ kbd {
 .brief-card { border-color: rgba(255, 107, 74, 0.3); background: linear-gradient(135deg, var(--bg-elev), rgba(255, 107, 74, 0.03)); }
 .brief-card textarea { font-family: inherit; font-size: 13px; }
 
+.onboard-probe { display: flex; flex-direction: column; gap: 6px; }
+.onboard-probe-help { font-size: 12px; color: var(--text-mute); margin: -2px 0 6px; }
+.onboard-probe .onboard-q { font-size: 12px; font-weight: 600; color: var(--text); margin-top: 8px; margin-bottom: 4px; text-transform: none; letter-spacing: 0; }
+.onboard-probe textarea { font-family: inherit; font-size: 13px; min-height: 56px; }
+
 .prompt-card .card-sub { font-size: 10px; padding: 3px 8px; border-radius: 999px; background: var(--bg-elev-2); border: 1px solid var(--border); color: var(--text-dim); text-transform: uppercase; font-weight: 700; letter-spacing: 0.06em; }
 .prompt-card .card-sub.custom { background: rgba(255, 107, 74, 0.15); border-color: rgba(255, 107, 74, 0.4); color: var(--accent); }
 .prompt-textarea { min-height: 360px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace; font-size: 12px; line-height: 1.5; }

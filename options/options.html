@@ -23,9 +23,21 @@
           <label class="strict-opt"><input type="radio" name="strict" value="balanced"><div><div class="strict-title">Balanced</div><div class="strict-sub">Only high-confidence unproductive closes.</div></div></label>
         </div>
       </div>
-      <div class="onboard-field">
-        <label>Tell me what distracts you <span class="mute">— Optional but recommended. Plain English. The AI will turn this into rules.</span></label>
-        <textarea id="onboardBrief" rows="4" placeholder="e.g., I scroll Instagram and Twitter way too much. MrBeast and iShowSpeed videos suck me in. I check email compulsively. I get sucked into chess highlights and Marvel clips."></textarea>
+      <div class="onboard-field onboard-probe">
+        <label>Quick training — answer what you can. Skip the rest.</label>
+        <p class="onboard-probe-help">Each answer becomes a personal policy rule. The AI compounds these over time.</p>
+
+        <label class="onboard-q">1. Which websites distract you most?</label>
+        <textarea id="probeSites" rows="2" placeholder="e.g., Instagram, Twitter, TikTok, Reddit. Bare names work — the AI maps them to domains."></textarea>
+
+        <label class="onboard-q">2. On YouTube, what kinds of videos suck you in?</label>
+        <textarea id="probeYtBad" rows="3" placeholder="e.g., MrBeast / iShowSpeed style stunts, Marvel movie clips, chess highlights, fitness vlogs, pop-philosophy hot takes, anything starting with 'I [verb]…'"></textarea>
+
+        <label class="onboard-q">3. What kinds of YouTube content IS productive for you?</label>
+        <textarea id="probeYtGood" rows="3" placeholder="e.g., AP exam prep, Stanford / MIT lectures, named technical tutorials, Lex Fridman with researchers, Y Combinator interviews."></textarea>
+
+        <label class="onboard-q">4. Anything else? Compulsive habits, time-wasters, topics to avoid?</label>
+        <textarea id="probeOther" rows="2" placeholder="e.g., I check email obsessively. I keep clicking on news commentary. I get sucked into Wikipedia rabbit holes."></textarea>
       </div>
       <div class="step-actions">
         <button class="btn-ghost" id="onboardSkip1">I'll set this up later</button>

@@ -718,12 +718,26 @@ $("onboardSkip1").addEventListener("click", async () => { await finishOnboarding
 $("onboardDone").addEventListener("click", async () => {
   const key = $("onboardApiKey").value.trim();
   const strict = document.querySelector('input[name="strict"]:checked').value;
-  const briefText = ($("onboardBrief").value || "").trim();
   const partial = { strictLevel: strict };
   if (key) partial.apiKey = key;
+
+  // Combine the four probing answers into a structured brief the parser can chew.
+  // Skipping any blank field — the parser handles partial input cleanly.
+  const probes = [
+    ["Distracting websites", ($("probeSites")?.value || "").trim()],
+    ["YouTube content that distracts me", ($("probeYtBad")?.value || "").trim()],
+    ["YouTube content that's productive for me", ($("probeYtGood")?.value || "").trim()],
+    ["Other compulsive habits and time-wasters", ($("probeOther")?.value || "").trim()]
+  ];
+  const briefText = probes
+    .filter(([, v]) => v.length > 0)
+    .map(([label, v]) => `${label}: ${v}`)
+    .join("\n\n");
+
   // Save settings + close onboarding immediately so the user isn't waiting.
   await finishOnboarding(partial);
-  // Then fire the brief application in the background if they wrote one.
+
+  // Then fire the brief application in the background if they answered anything.
   if (briefText && key) {
     const res = await send("apply_brief", { text: briefText });
     if (res?.ok) {
@@ -732,7 +746,7 @@ $("onboardDone").addEventListener("click", async () => {
       if (s.domainsAdded.length) parts.push(`blocked ${s.domainsAdded.length} domain${s.domainsAdded.length === 1 ? "" : "s"}`);
       if (s.channelsAdded.length) parts.push(`${s.channelsAdded.length} channel${s.channelsAdded.length === 1 ? "" : "s"}`);
       if (s.rulesAdded) parts.push(`${s.rulesAdded} policy rule${s.rulesAdded === 1 ? "" : "s"}`);
-      if (parts.length) alert(`Trained from your description: ${parts.join(", ")}.`);
+      if (parts.length) alert(`Trained from your answers: ${parts.join(", ")}.`);
       loadRules();
       refreshDashboard();
     }
