@@ -1,3 +1,6 @@
+import { getUsageStats, projectPerModel } from "../lib/usage.js";
+import { MODELS, DEFAULT_MODEL } from "../lib/pricing.js";
+
 const $ = (id) => document.getElementById(id);
 
 // Chrome MV3 service workers can be cold on first message burst — retry once on undefined.
@@ -58,6 +61,43 @@ function computeAttentionScore(stats) {
   const closeComponent = Math.min(50, Math.log(closes + 1) * 15);
   const timeComponent = Math.min(50, Math.log((seconds / 60) + 1) * 9);
   return Math.round(closeComponent + timeComponent);
+}
+
+async function renderCostCard() {
+  const [settings, stats] = await Promise.all([
+    chrome.storage.sync.get(["classifierModel", "monthlyBudgetUsd"]),
+    getUsageStats()
+  ]);
+
+  const budget = Number(settings.monthlyBudgetUsd) || 0;
+  const spent = stats.monthSpentUsd;
+
+  // SVG donut: circumference = 2π × 50 ≈ 314.16
+  const C = 314.16;
+  const fill = document.querySelector(".cost-donut-fill");
+  const pctText = document.querySelector(".cost-donut-pct");
+  if (fill && pctText) {
+    if (budget > 0) {
+      const ratio = Math.min(spent / budget, 1);
+      fill.setAttribute("stroke-dasharray", `${(ratio * C).toFixed(2)} ${C}`);
+      fill.classList.toggle("over-budget", spent > budget);
+      pctText.textContent = `${Math.round((spent / budget) * 100)}%`;
+    } else {
+      fill.setAttribute("stroke-dasharray", `0 ${C}`);
+      fill.classList.remove("over-budget");
+      pctText.textContent = "—";
+    }
+  }
+
+  $("costSpent").textContent = `$${spent.toFixed(2)}`;
+  $("costBudget").textContent = budget > 0 ? `of $${budget.toFixed(2)} budget` : "no budget set";
+
+  const modelId = settings.classifierModel || DEFAULT_MODEL;
+  const modelLabel = MODELS[modelId]?.label || "Haiku 4.5";
+  const projText = stats.dataDays === 0
+    ? "Not enough data yet — check back after a few classifications."
+    : `Projected: $${stats.projectedMonthlyUsd.toFixed(2)}/mo · ${stats.callsThisMonth} calls · ${modelLabel}`;
+  $("costProjection").textContent = projText;
 }
 
 document.querySelectorAll(".tab").forEach((tab) => {
@@ -279,6 +319,8 @@ async function refreshDashboard() {
       rc.appendChild(row);
     }
   }
+
+  renderCostCard().catch(() => {});
 }
 
 async function refreshLog() {
@@ -553,6 +595,16 @@ $("insightsGenerate").addEventListener("click", generateInsights);
 ["logSearch", "logVerdict", "logKind"].forEach((id) => {
   $(id).addEventListener("input", renderLog);
   $(id).addEventListener("change", renderLog);
+});
+
+$("costEditBudget")?.addEventListener("click", (e) => {
+  e.preventDefault();
+  document.querySelector('.tab[data-tab="rules"]')?.click();
+  const budgetInput = $("monthlyBudget");
+  if (budgetInput) {
+    budgetInput.focus();
+    budgetInput.select();
+  }
 });
 
 loadRules();
