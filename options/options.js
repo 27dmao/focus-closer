@@ -272,6 +272,26 @@ async function refreshDashboard() {
   }
 }
 
+function describeRefuteAction(action, entry) {
+  if (action === "video_whitelisted") return `whitelisted "${entry.title || "video"}"${entry.channel ? ` and channel "${entry.channel}"` : ""}`;
+  if (action === "video_blocked") return `blocked "${entry.title || "video"}"${entry.channel ? ` and channel "${entry.channel}"` : ""}`;
+  if (action === "domain_unblocked") return `permanently unblocked "${entry.matchedEntry || entry.hostname}"`;
+  return "applied";
+}
+
+function showLogToast(text) {
+  const host = $("logToast");
+  if (!host) return;
+  host.textContent = text;
+  host.classList.remove("hidden");
+  host.classList.add("visible");
+  clearTimeout(showLogToast._t);
+  showLogToast._t = setTimeout(() => {
+    host.classList.remove("visible");
+    setTimeout(() => host.classList.add("hidden"), 200);
+  }, 3500);
+}
+
 async function refreshLog() {
   const logResp = await send("get_log");
   const log = logResp?.log || [];
@@ -305,6 +325,8 @@ function renderLog() {
   }
   for (const e of filtered.slice(0, 500)) {
     const tr = document.createElement("tr");
+    const isRefuted = !!e.refutedAt;
+    if (isRefuted) tr.classList.add("refuted");
     const isClose = e.verdict === "unproductive" || e.kind === "blocklist" || e.kind === "user_flag";
     const pillCls = e.kind === "user_flag" ? "pill-flag" : (isClose ? "pill-close" : "pill-keep");
     const pillText = e.kind === "user_flag" ? "FLAG" : (isClose ? "CLOSE" : "KEEP");
@@ -315,7 +337,7 @@ function renderLog() {
     tr.innerHTML = `
       <td>${new Date(e.at).toLocaleString()}</td>
       <td>${e.kind || ""}</td>
-      <td><span class="pill ${pillCls}">${pillText}</span></td>
+      <td><span class="pill ${pillCls}">${pillText}</span>${isRefuted ? ' <span class="pill pill-refuted" title="You refuted this decision">REFUTED</span>' : ""}</td>
       <td class="log-target"></td>
       <td></td>
       <td>${e.source || ""}</td>
@@ -327,7 +349,7 @@ function renderLog() {
     const canRefute = (e.kind === "youtube" && e.videoId) ||
                       (e.kind === "user_flag" && e.videoId) ||
                       (e.kind === "blocklist" && e.matchedEntry);
-    if (canRefute) {
+    if (canRefute && !isRefuted) {
       const refuteBtn = document.createElement("button");
       refuteBtn.className = "refute";
       refuteBtn.textContent = "Refute";
@@ -338,10 +360,21 @@ function renderLog() {
         const verb = isClose ? "whitelist" : "block";
         if (!confirm(`Refute this decision? Focus Closer will ${verb} this ${e.kind === "blocklist" ? "domain" : "video/channel"} going forward.`)) return;
         const res = await send("refute_log_entry", { at: e.at });
-        if (res?.ok) refreshLog();
-        else alert("Couldn't refute this entry.");
+        if (res?.ok) {
+          showLogToast(`Refuted ✓  ${describeRefuteAction(res.action, e)}`);
+          refreshLog();
+        } else {
+          alert("Couldn't refute this entry.");
+        }
       });
       actions.appendChild(refuteBtn);
+    } else if (isRefuted) {
+      const done = document.createElement("button");
+      done.className = "refuted-done";
+      done.textContent = "Refuted ✓";
+      done.disabled = true;
+      done.title = `${describeRefuteAction(e.refuteAction, e)} · ${formatRelativeTime(e.refutedAt)}`;
+      actions.appendChild(done);
     }
     const removeBtn = document.createElement("button");
     removeBtn.className = "remove";

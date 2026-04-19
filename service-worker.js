@@ -28,7 +28,7 @@ import {
   setPersonalPolicy,
   clearPersonalPolicy
 } from "./lib/storage.js";
-import { logDecision, getStats, getLog, clearLog, removeLogEntry, getLogEntry } from "./lib/logger.js";
+import { logDecision, getStats, getLog, clearLog, removeLogEntry, getLogEntry, markLogEntryRefuted } from "./lib/logger.js";
 import { classifyLocally } from "./classifier/rules.js";
 import { classifyWithClaude } from "./classifier/claude.js";
 import { distillPolicy } from "./classifier/policy.js";
@@ -674,6 +674,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             }
           }
           if (entry.title) await recordAndMaybeReflect("productive", { title: entry.title, channel: entry.channel, videoId: entry.videoId });
+          await markLogEntryRefuted(msg.at, "video_whitelisted");
           sendResponse({ ok: true, action: "video_whitelisted" });
         } else {
           // Wrongly kept — user-block the video + the channel (if we have it)
@@ -688,6 +689,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             }
           }
           if (entry.title) await recordAndMaybeReflect("unproductive", { title: entry.title, channel: entry.channel, videoId: entry.videoId });
+          await markLogEntryRefuted(msg.at, "video_blocked");
           sendResponse({ ok: true, action: "video_blocked" });
         }
         return;
@@ -696,6 +698,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (entry.kind === "blocklist") {
         // Wrongly blocked — permanent override for the matched entry so future visits pass.
         if (entry.matchedEntry) await setOverride(entry.matchedEntry, null);
+        await markLogEntryRefuted(msg.at, "domain_unblocked");
         sendResponse({ ok: true, action: "domain_unblocked" });
         return;
       }

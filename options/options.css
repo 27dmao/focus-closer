@@ -167,6 +167,33 @@ button { font: inherit; cursor: pointer; }
 .log-actions button:hover { color: var(--text); border-color: var(--accent); }
 .log-actions button.refute:hover { color: #ffb36b; border-color: #f57c00; }
 .log-actions button.remove:hover { color: var(--unproductive); border-color: var(--unproductive); }
+.log-actions button.refuted-done {
+  background: rgba(62, 207, 142, 0.14); color: var(--productive);
+  border-color: rgba(62, 207, 142, 0.4); cursor: default;
+}
+.log-actions button.refuted-done:hover { color: var(--productive); border-color: rgba(62, 207, 142, 0.4); }
+
+.log-table tr.refuted td:not(:last-child) { opacity: 0.55; }
+.log-table tr.refuted .log-target,
+.log-table tr.refuted td:nth-child(5) { text-decoration: line-through; }
+
+.pill-refuted {
+  background: rgba(62, 207, 142, 0.18);
+  color: var(--productive);
+  margin-left: 4px;
+}
+
+.log-toast {
+  background: rgba(62, 207, 142, 0.15);
+  border: 1px solid rgba(62, 207, 142, 0.4);
+  color: var(--productive);
+  padding: 10px 14px; border-radius: var(--radius-sm);
+  font-size: 13px; font-weight: 600; margin-bottom: 12px;
+  transform: translateY(-4px); opacity: 0;
+  transition: transform 200ms cubic-bezier(0.16,1,0.3,1), opacity 180ms ease-out;
+}
+.log-toast.hidden { display: none; }
+.log-toast.visible { transform: translateY(0); opacity: 1; }
 
 .numbered { margin: 0; padding-left: 20px; }
 .numbered li { margin-bottom: 8px; font-size: 13px; color: var(--text-dim); }
