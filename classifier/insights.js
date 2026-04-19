@@ -1,3 +1,5 @@
+import { logUsage } from "../lib/usage.js";
+
 const MODEL = "claude-haiku-4-5-20251001";
 const ENDPOINT = "https://api.anthropic.com/v1/messages";
 
@@ -103,6 +105,9 @@ Keep each section to 1-2 sentences. Total output < 120 words. Talk directly to t
     }
 
     const json = await res.json();
+    if (json?.usage) {
+      logUsage({ model: MODEL, usage: json.usage }).catch(() => {});
+    }
     const text = json?.content?.[0]?.text?.trim() || "";
     if (!text) return { error: "empty_response", reason: "Claude returned no text" };
 
