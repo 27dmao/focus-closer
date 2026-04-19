@@ -497,6 +497,18 @@ async function loadRules() {
   const data = await send("get_dashboard");
   const settings = data?.settings || {};
   $("apiKey").value = settings.apiKey || "";
+  // Show stored-key confirmation so the user can SEE that a key is on file.
+  const status = $("apiKeyStatus");
+  if (status) {
+    if (settings.apiKey && settings.apiKey.startsWith("sk-ant-")) {
+      status.textContent = `✓ Stored · ending in …${settings.apiKey.slice(-6)}`;
+      status.className = "card-sub api-key-ok";
+    } else {
+      status.textContent = "Not set — paste your key below";
+      status.className = "card-sub";
+    }
+  }
+  wireApiKeyAutoSave();
   $("musicRule").value = settings.musicRule || "instrumental_only";
   $("blocklist").value = (settings.blocklist || []).join("\n");
   $("channelWhitelist").value = (settings.channelWhitelist || []).join("\n");
@@ -507,6 +519,69 @@ async function loadRules() {
   $("monthlyBudget").value = settings.monthlyBudgetUsd ?? 5;
   await loadSystemPrompt(settings);
   updateLatencyWarning();
+}
+
+// API key auto-save — pasting + Enter + blur all save. Visible confirmation
+// next to the field so the user trusts that it persisted.
+let _apiKeySaveTimer = null;
+async function saveApiKey(source) {
+  const input = $("apiKey");
+  const status = $("apiKeyStatus");
+  const key = (input.value || "").trim();
+  if (!status) return;
+
+  if (!key) {
+    status.textContent = "";
+    status.className = "card-sub";
+    return;
+  }
+  if (!key.startsWith("sk-ant-") || key.length < 30) {
+    status.textContent = "⚠ Doesn't look like an Anthropic key (should start with sk-ant-)";
+    status.className = "card-sub api-key-warn";
+    return;
+  }
+
+  await send("set_settings", { partial: { apiKey: key } });
+
+  // Verify the round-trip — read it back to confirm it actually persisted.
+  const data = await send("get_dashboard");
+  const stored = data?.settings?.apiKey || "";
+  if (stored === key) {
+    const tail = key.slice(-6);
+    status.textContent = `✓ Saved · ending in …${tail} · ${source}`;
+    status.className = "card-sub api-key-ok";
+  } else {
+    status.textContent = "⚠ Save didn't persist — chrome.storage.sync may be full or rate-limited";
+    status.className = "card-sub api-key-warn";
+  }
+}
+
+function wireApiKeyAutoSave() {
+  const input = $("apiKey");
+  if (!input || input.dataset.wired) return;
+  input.dataset.wired = "1";
+
+  // Paste — fires before the input event, so wait a tick for the value.
+  input.addEventListener("paste", () => {
+    setTimeout(() => saveApiKey("paste"), 10);
+  });
+
+  // Enter — explicit user intent.
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      saveApiKey("press Enter");
+    }
+  });
+
+  // Blur — safety net.
+  input.addEventListener("blur", () => saveApiKey("autosave"));
+
+  // Debounced typing — saves while you type.
+  input.addEventListener("input", () => {
+    clearTimeout(_apiKeySaveTimer);
+    _apiKeySaveTimer = setTimeout(() => saveApiKey("typing"), 800);
+  });
 }
 
 async function loadSystemPrompt(settings) {

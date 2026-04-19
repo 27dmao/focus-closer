@@ -220,9 +220,12 @@
 
 <section class="panel hidden" data-panel="rules">
   <div class="card">
-    <div class="card-header"><h3>Anthropic API key</h3></div>
-    <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off" />
-    <div class="help">Stored in chrome.storage.sync. Used only for calls to api.anthropic.com. Needed when local rules can't decide.</div>
+    <div class="card-header">
+      <h3>Anthropic API key</h3>
+      <span class="card-sub" id="apiKeyStatus"></span>
+    </div>
+    <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off" spellcheck="false" />
+    <div class="help">Auto-saves when you paste, press Enter, or click away. No need for the Save button below — that's for the other settings.</div>
   </div>
 
   <div class="card brief-card">

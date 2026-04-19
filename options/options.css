@@ -304,6 +304,9 @@ kbd {
 .prompt-card .card-sub.custom { background: rgba(255, 107, 74, 0.15); border-color: rgba(255, 107, 74, 0.4); color: var(--accent); }
 .prompt-textarea { min-height: 360px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace; font-size: 12px; line-height: 1.5; }
 
+.api-key-ok { color: var(--productive); font-weight: 600; }
+.api-key-warn { color: var(--unproductive); font-weight: 600; }
+
 .policy-link { color: var(--accent); font-size: 12px; font-weight: 600; text-decoration: none; margin-left: auto; }
 .policy-link:hover { text-decoration: underline; }
 .prompt-card.flash { animation: card-flash 1.4s ease-out; }
