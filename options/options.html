@@ -99,6 +99,42 @@
     </div>
   </div>
 
+  <div class="card cost-card">
+    <div class="card-header">
+      <h3>API usage this month</h3>
+      <span class="card-sub">spent vs. your budget</span>
+    </div>
+    <div class="cost-body">
+      <svg class="cost-donut" viewBox="0 0 120 120" aria-hidden="true">
+        <circle class="cost-donut-track" cx="60" cy="60" r="50" />
+        <circle class="cost-donut-fill" cx="60" cy="60" r="50"
+                stroke-dasharray="0 999" transform="rotate(-90 60 60)" />
+        <text class="cost-donut-pct" x="60" y="66" text-anchor="middle">—</text>
+      </svg>
+      <div class="cost-meta">
+        <div class="cost-spent" id="costSpent">—</div>
+        <div class="cost-budget" id="costBudget">of — budget</div>
+        <div class="cost-projection" id="costProjection">Projected: — · — calls · —</div>
+        <div class="cost-actions">
+          <a href="#" id="costEditBudget">Edit budget</a>
+          <a href="https://console.anthropic.com/settings/billing" target="_blank" rel="noopener">View balance on console →</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h3>Estimated monthly cost by model</h3>
+      <span class="card-sub">based on your actual usage</span>
+    </div>
+    <table class="model-cost-table" id="modelCostTable">
+      <thead><tr><th>Model</th><th>Projected</th><th>Speed</th><th></th></tr></thead>
+      <tbody><tr><td colspan="4" class="empty">Classify a few videos to see projections.</td></tr></tbody>
+    </table>
+    <div class="help">Projections use your actual token volumes and cache-hit ratio from the last 30 days.</div>
+  </div>
+
   <div id="suggestionsCard" class="card suggestions-card hidden">
     <div class="card-header">
       <h3>Smart suggestions</h3>

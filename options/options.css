@@ -325,3 +325,53 @@ kbd {
   main { padding: 18px; }
   .topbar, .tabs { padding-left: 18px; padding-right: 18px; }
 }
+
+/* Cost card */
+.cost-body { display: flex; gap: 24px; align-items: center; }
+.cost-donut { width: 120px; height: 120px; flex-shrink: 0; }
+.cost-donut-track { fill: none; stroke: var(--bg-elev-2); stroke-width: 14; }
+.cost-donut-fill {
+  fill: none;
+  stroke: var(--productive);
+  stroke-width: 14;
+  stroke-linecap: round;
+  transition: stroke-dasharray 400ms ease, stroke 200ms;
+}
+.cost-donut-fill.over-budget { stroke: var(--unproductive); }
+.cost-donut-pct { font-size: 18px; font-weight: 600; fill: var(--text); }
+.cost-meta { flex: 1; min-width: 0; }
+.cost-spent { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+.cost-budget { color: var(--text-dim); margin-top: 2px; font-size: 13px; }
+.cost-projection { margin-top: 10px; color: var(--text-dim); font-size: 13px; }
+.cost-actions { margin-top: 12px; display: flex; gap: 16px; font-size: 13px; flex-wrap: wrap; }
+.cost-actions a { color: var(--accent); text-decoration: none; }
+.cost-actions a:hover { text-decoration: underline; }
+
+/* Model cost table */
+.model-cost-table { width: 100%; border-collapse: collapse; }
+.model-cost-table th, .model-cost-table td {
+  text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border);
+}
+.model-cost-table th {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-mute); font-weight: 600;
+}
+.model-cost-table td.empty { text-align: center; color: var(--text-dim); padding: 20px; }
+.model-cost-table .speed-fastest { color: var(--productive); }
+.model-cost-table .speed-medium { color: #f5a623; }
+.model-cost-table .speed-slow { color: var(--unproductive); }
+.model-cost-table .current-badge {
+  background: rgba(62, 207, 142, 0.15); color: var(--productive);
+  padding: 2px 10px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 600;
+}
+.model-cost-table .btn-switch {
+  background: transparent; border: 1px solid var(--border); color: var(--text);
+  padding: 4px 10px; border-radius: var(--radius-sm); cursor: pointer;
+  font: inherit; font-size: 12px; font-weight: 600;
+}
+.model-cost-table .btn-switch:hover { border-color: var(--accent); color: var(--accent); }
+
+@media (max-width: 560px) {
+  .cost-body { flex-direction: column; align-items: stretch; }
+  .cost-donut { align-self: center; }
+}
