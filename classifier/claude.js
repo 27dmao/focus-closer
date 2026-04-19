@@ -322,7 +322,16 @@ export async function classifyWithClaude(meta, settings, history, policy) {
       return { verdict: null, error: "parse_failed", reason: text.slice(0, 200) };
     }
 
-    const parsed = JSON.parse(match[0]);
+    let parsed;
+    try {
+      parsed = JSON.parse(match[0]);
+    } catch (e) {
+      // Greedy regex picked an invalid JSON span (e.g., model output had
+      // "{...}" inside a string before a real "{...}", or the response was
+      // truncated). Without this catch, the SyntaxError fell through to the
+      // outer catch and got reported as a misleading "network" error.
+      return { verdict: null, error: "parse_failed", reason: `JSON parse failed: ${String(e?.message || e).slice(0, 100)}` };
+    }
     if (parsed.verdict !== "productive" && parsed.verdict !== "unproductive") {
       return { verdict: null, error: "bad_verdict", reason: text.slice(0, 200) };
     }
