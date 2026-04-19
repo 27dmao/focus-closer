@@ -218,7 +218,11 @@ async function callClaude({ hostname, title, description, settings, policy, hist
     }
     const json = await res.json();
     const usage = json.usage || {};
-    try { await logUsage({ model, inputTokens: usage.input_tokens || 0, outputTokens: usage.output_tokens || 0, cacheReadTokens: usage.cache_read_input_tokens || 0, cacheCreateTokens: usage.cache_creation_input_tokens || 0 }); } catch {}
+    try {
+      await logUsage({ model, inputTokens: usage.input_tokens || 0, outputTokens: usage.output_tokens || 0, cacheReadTokens: usage.cache_read_input_tokens || 0, cacheCreateTokens: usage.cache_creation_input_tokens || 0 });
+    } catch (e) {
+      console.warn("[focus-closer] logUsage (domain) failed:", e?.message || e);
+    }
     const text = json.content?.[0]?.text?.trim() || "";
     const m = text.match(/\{[\s\S]*\}/);
     if (!m) return { verdict: null, error: "parse_failed", reason: text.slice(0, 200) };

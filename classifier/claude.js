@@ -314,7 +314,9 @@ export async function classifyWithClaude(meta, settings, history, policy) {
 
     const json = await res.json();
     if (json?.usage) {
-      logUsage({ model: modelId, usage: json.usage }).catch(() => {});
+      logUsage({ model: modelId, usage: json.usage }).catch((e) => {
+        console.warn("[focus-closer] logUsage failed:", e?.message || e);
+      });
     }
     const text = json?.content?.[0]?.text?.trim() || "";
     const match = text.match(/\{[\s\S]*\}/);
