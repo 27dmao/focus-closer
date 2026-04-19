@@ -17,7 +17,11 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
-body { min-height: 100vh; }
+body { min-height: 100vh; width: 540px; overflow-x: hidden; }
+/* Tab mode (options page opens in a tab via options_ui.open_in_tab): let body fill the viewport. Popups are capped <800px so this only triggers in the tab. */
+@media (min-width: 900px) {
+  body { width: auto; overflow-x: visible; }
+}
 
 .topbar {
   display: flex; justify-content: space-between; align-items: center;
@@ -35,6 +39,8 @@ body { min-height: 100vh; }
 
 .status { display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--productive); box-shadow: 0 0 8px var(--productive); }
+.status-dot.paused { background: #f5a623; box-shadow: 0 0 8px #f5a623; }
+.sep { width: 1px; height: 18px; background: var(--border); margin: 0 6px; }
 
 .tabs {
   display: flex; gap: 4px;
@@ -68,6 +74,7 @@ main { padding: 28px; max-width: 1100px; margin: 0 auto; }
 .card {
   background: var(--bg-elev); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 18px;
+  min-width: 0;
 }
 .card-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .card-header h3 { margin: 0; font-size: 14px; font-weight: 700; letter-spacing: -0.005em; }
@@ -75,8 +82,8 @@ main { padding: 28px; max-width: 1100px; margin: 0 auto; }
 
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 
-.chart { display: flex; gap: 8px; align-items: flex-end; height: 140px; padding: 8px 0; }
-.bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.chart { display: flex; gap: 8px; align-items: flex-end; height: 140px; padding: 8px 0; min-width: 0; }
+.bar-col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .bar {
   width: 100%; background: linear-gradient(180deg, var(--accent), #b5451e);
   border-radius: 4px 4px 0 0; min-height: 2px;
@@ -288,15 +295,20 @@ kbd {
 .suggestion .btn-tiny.ghost { background: transparent; border: 1px solid var(--border); color: var(--text-dim); }
 .suggestion .btn-tiny:hover { opacity: 0.88; }
 
-.heatmap { display: grid; grid-template-columns: auto repeat(24, 1fr); gap: 2px; font-size: 10px; }
+.heatmap { display: grid; grid-template-columns: auto repeat(24, minmax(0, 1fr)); gap: 2px; font-size: 10px; min-width: 0; }
 .heatmap .h-label { color: var(--text-mute); font-weight: 600; padding: 4px 6px; font-variant-numeric: tabular-nums; }
 .heatmap .h-cell {
   aspect-ratio: 1; border-radius: 2px;
   background: var(--bg-elev-2);
   transition: background 0.15s;
+  min-width: 0;
 }
 .heatmap .h-cell:hover { outline: 1px solid var(--accent); }
-.heatmap .h-col-label { text-align: center; color: var(--text-mute); font-weight: 600; font-size: 9px; padding: 3px 0; grid-row: 1; }
+.heatmap .h-col-label {
+  text-align: center; color: var(--text-mute); font-weight: 600;
+  font-size: 9px; padding: 3px 0; grid-row: 1;
+  min-width: 0; overflow: hidden; white-space: nowrap;
+}
 
 @media (max-width: 860px) {
   .suggestions { grid-template-columns: 1fr; }
