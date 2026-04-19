@@ -156,53 +156,53 @@ function popupRendererSource() {
     host.id = EXISTING_ID;
     host.style.cssText = [
       "position:fixed",
-      "bottom:20px",
-      "right:20px",
+      "bottom:16px",
+      "right:16px",
       "z-index:2147483647",
-      "font:13px/1.45 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif",
-      "transform:translateY(8px) scale(0.98)",
+      "font:12px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif",
+      "transform:translateY(6px) scale(0.98)",
       "opacity:0",
-      "transition:transform 260ms cubic-bezier(0.16,1,0.3,1),opacity 200ms ease-out"
+      "transition:transform 220ms cubic-bezier(0.16,1,0.3,1),opacity 180ms ease-out"
     ].join(";");
 
     const card = document.createElement("div");
     card.style.cssText = [
       `background:${bg}`,
       "color:#fff",
-      "padding:14px 16px",
-      "border-radius:12px",
-      "box-shadow:0 12px 36px rgba(0,0,0,0.5),0 2px 8px rgba(0,0,0,0.3)",
-      `border-left:4px solid ${accent}`,
-      "min-width:340px",
-      "max-width:440px",
-      "backdrop-filter:blur(12px)"
+      "padding:10px 12px",
+      "border-radius:10px",
+      "box-shadow:0 10px 28px rgba(0,0,0,0.45),0 2px 6px rgba(0,0,0,0.25)",
+      `border-left:3px solid ${accent}`,
+      "min-width:260px",
+      "max-width:340px",
+      "backdrop-filter:blur(10px)"
     ].join(";");
 
     const header = document.createElement("div");
-    header.style.cssText = "font-weight:700;letter-spacing:0.5px;margin-bottom:6px;font-size:11px;opacity:0.85;text-transform:uppercase;";
+    header.style.cssText = "font-weight:700;letter-spacing:0.4px;margin-bottom:4px;font-size:10px;opacity:0.8;text-transform:uppercase;";
     header.textContent = isUserFlag ? "Flagged as distracting" : (isYt ? "Closed YouTube video" : `Closed ${detail.matchedEntry || detail.hostname}`);
     card.appendChild(header);
 
     const body = document.createElement("div");
-    body.style.cssText = "margin-bottom:4px;opacity:0.95;";
+    body.style.cssText = "margin-bottom:2px;opacity:0.95;";
     if (isYt || isUserFlag) {
       const t = document.createElement("div");
-      t.style.cssText = "font-weight:600;margin-bottom:2px;";
+      t.style.cssText = "font-weight:600;margin-bottom:1px;font-size:12px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;";
       t.textContent = detail.title || "(unknown title)";
       const c = document.createElement("div");
-      c.style.cssText = "opacity:0.7;font-size:12px;";
+      c.style.cssText = "opacity:0.65;font-size:11px;";
       c.textContent = detail.channel || "";
       body.appendChild(t);
       if (detail.channel) body.appendChild(c);
     }
     const reason = document.createElement("div");
-    reason.style.cssText = "margin-top:6px;opacity:0.8;font-size:12px;";
+    reason.style.cssText = "margin-top:4px;opacity:0.75;font-size:11px;line-height:1.35;";
     reason.textContent = detail.reason || "";
     body.appendChild(reason);
     card.appendChild(body);
 
     const actions = document.createElement("div");
-    actions.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;";
+    actions.style.cssText = "display:flex;gap:5px;flex-wrap:wrap;margin-top:9px;";
 
     function mkBtn(label, payload, primary) {
       const b = document.createElement("button");
@@ -211,9 +211,9 @@ function popupRendererSource() {
         "border:0",
         `background:${primary ? accent : "rgba(255,255,255,0.1)"}`,
         "color:#fff",
-        "padding:8px 12px",
-        "border-radius:7px",
-        "font:600 12px/1 inherit",
+        "padding:6px 9px",
+        "border-radius:5px",
+        "font:600 11px/1 inherit",
         "cursor:pointer",
         "white-space:nowrap",
         "transition:background 120ms ease,transform 80ms ease"
@@ -247,7 +247,7 @@ function popupRendererSource() {
     card.appendChild(actions);
 
     const meta = document.createElement("div");
-    meta.style.cssText = "margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center;font-size:10px;opacity:0.55;";
+    meta.style.cssText = "margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center;font-size:9px;opacity:0.5;";
     const left = document.createElement("span");
     left.textContent = "ESC to dismiss · hover to hold";
     const right = document.createElement("a");
