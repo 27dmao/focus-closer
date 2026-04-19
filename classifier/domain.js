@@ -86,16 +86,32 @@ function findBlocklistMatch(hostname, pathname, settings) {
 function policyMentionsHostname(policy, hostname) {
   if (!policy?.rules) return null;
   const h = hostname.toLowerCase();
+  // Build a set of "host-shaped" tokens. A bare substring match (r.includes(h))
+  // produced false positives — "don't close google.com tabs" was matching
+  // hostname google.com against the verb "close" rather than the actual
+  // hostname mention. Use a regex that requires h to appear with a hostname-
+  // shaped boundary on both sides.
+  // Boundaries that count: start/end of string, whitespace, quotes, punctuation
+  // typical in natural-language rules. Specifically NOT a letter/number/dot
+  // (which would mean h is part of a longer hostname, e.g. "evil-google.com").
+  const escaped = h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const hostRe = new RegExp(`(^|[^a-z0-9.])${escaped}([^a-z0-9.]|$)`, "i");
+
   for (const rule of policy.rules) {
     const r = rule.toLowerCase();
-    if (r.includes(h)) {
-      // Heuristic: if the rule contains "close" or "block" → unproductive, "keep"/"allow" → productive
-      if (/\b(close|block|avoid|skip)\b/.test(r)) {
-        return { verdict: "unproductive", reason: `personal policy: "${rule}"`, confidence: 0.95 };
-      }
-      if (/\b(keep|allow|productive|whitelist)\b/.test(r)) {
-        return { verdict: "productive", reason: `personal policy: "${rule}"`, confidence: 0.95 };
-      }
+    if (!hostRe.test(r)) continue;
+    // Detect simple negation ("don't close google.com" should be productive,
+    // not unproductive). Looks for negation tokens within ~30 chars of the
+    // action verb. Imperfect but catches the most common phrasings.
+    const negated = /\b(don'?t|do not|never|avoid blocking|keep)\b[^.!?]{0,30}?\b(close|block|avoid|skip)\b/.test(r);
+    if (negated) {
+      return { verdict: "productive", reason: `personal policy: "${rule}"`, confidence: 0.9 };
+    }
+    if (/\b(close|block|avoid|skip)\b/.test(r)) {
+      return { verdict: "unproductive", reason: `personal policy: "${rule}"`, confidence: 0.95 };
+    }
+    if (/\b(keep|allow|productive|whitelist)\b/.test(r)) {
+      return { verdict: "productive", reason: `personal policy: "${rule}"`, confidence: 0.95 };
     }
   }
   return null;
