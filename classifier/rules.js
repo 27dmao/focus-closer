@@ -18,14 +18,33 @@ const PRODUCTIVE_FOCUS_MUSIC_KEYWORDS = [
 ];
 
 const UNPRODUCTIVE_TITLE_KEYWORDS = [
-  "minecraft", "fortnite", "roblox", "gta", "call of duty",
-  "gameplay", "playthrough", "let's play", "lets play",
-  "speedrun", "pro gamer",
-  "vlog", "day in the life", "morning routine",
+  // Gaming
+  "minecraft", "fortnite", "roblox", "gta", "call of duty", "valorant", "league of legends", "elden ring",
+  "gameplay", "playthrough", "let's play", "lets play", "speedrun", "pro gamer", "ranked",
+  "ishowspeed", "kai cenat",
+  // Vlog / lifestyle
+  "vlog", "day in the life", "day in my life", "morning routine", "night routine", "what i eat",
+  // Reactions / compilations
   "reaction", "reacts to", "reacting to",
-  "meme compilation", "tiktok compilation", "funny moments",
-  "prank", "unboxing",
-  "drama recap", "celebrity", "gossip"
+  "compilation", "funny moments", "best moments", "tiktok",
+  // Movies / TV / clips
+  "movie clip", "movie scene", "scene -", "fight scene", "court scene",
+  "endgame", "marvel", "spider-man", "spiderman", "iron man", "batman", "naruto", "anime moments",
+  "every leak", "ending explained", "trailer breakdown", "post credits",
+  // Pranks / social-experiment
+  "prank", "unboxing", "social experiment", "convinced a stranger", "i convinced",
+  // Celebrity / drama
+  "drama recap", "celebrity", "gossip", "leaked", "exposed",
+  // MrBeast-style challenge clickbait
+  "mrbeast", "i trapped", "last to leave", "last to ", "i survived", "i tested", "wins $",
+  // Pop-sci / dopamine bait
+  "you won't believe", "shocked the world", "blew my mind", "changed everything",
+  "creepier the deeper", "creepier than", "scariest",
+  // Sports / esports
+  "blindfold chess", "vs. magnus", "vs magnus", "guess your elo", "talent show",
+  "world #", "world no",
+  // Livestream entertainment
+  "greatest livestream", "live stream highlights", "stream highlights"
 ];
 
 const UNPRODUCTIVE_CATEGORY_HINTS = [
@@ -83,11 +102,18 @@ export function classifyLocally(meta, settings) {
     };
   }
 
-  if (anyMatch(title, UNPRODUCTIVE_TITLE_KEYWORDS)) {
+  // Unproductive keywords: scan title, description, and tags. Many gaming/entertainment
+  // videos (e.g., "I Trapped 100 Players...") don't say "minecraft" in the title but say
+  // it everywhere else. Catching those with a free local rule beats paying Claude.
+  const tagsStr = (tags || []).join(" ");
+  const unprodTitle = anyMatch(title, UNPRODUCTIVE_TITLE_KEYWORDS);
+  const unprodDesc = anyMatch(description, UNPRODUCTIVE_TITLE_KEYWORDS);
+  const unprodTags = anyMatch(tagsStr, UNPRODUCTIVE_TITLE_KEYWORDS);
+  if (unprodTitle || unprodDesc || unprodTags) {
     return {
       verdict: "unproductive",
-      confidence: 0.9,
-      reason: `unproductive keyword match in title`,
+      confidence: unprodTitle ? 0.92 : 0.88,
+      reason: unprodTitle ? "unproductive keyword in title" : (unprodDesc ? "unproductive keyword in description" : "unproductive keyword in tags"),
       source: "rule"
     };
   }

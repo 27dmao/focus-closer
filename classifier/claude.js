@@ -4,31 +4,62 @@ const MAX_TOKENS = 200;
 
 function buildSystemPrompt(settings) {
   const musicRule = {
-    instrumental_only: `- Music: ONLY instrumental/lofi/focus/study/ambient/classical-for-study = productive. Songs with vocals, pop/rap/rock, music videos (MVs), artist uploads = unproductive.`,
-    all_productive: `- Music: any music-categorized video = productive.`,
-    all_unproductive: `- Music: any music-categorized video = unproductive (YouTube is for learning only).`
+    instrumental_only: `Music rule: ONLY instrumental/lofi/focus/study/ambient/classical-for-study = productive. Songs with vocals, pop/rap/rock, music videos (MVs), artist uploads = unproductive.`,
+    all_productive: `Music rule: any music-categorized video = productive.`,
+    all_unproductive: `Music rule: any music-categorized video = unproductive.`
   }[settings.musicRule || "instrumental_only"];
 
-  return `You classify YouTube videos as "productive" or "unproductive" for a user trying to stay focused.
+  return `You classify YouTube videos as "productive" or "unproductive" for a user trying to stay focused on real work and learning.
 
-PRODUCTIVE:
-- Academic lectures, courses, tutorials (physics, chemistry, math, AP subjects, programming, engineering)
-- Long-form technical interviews and podcasts with scientists/engineers/founders
-- History documentaries, science documentaries
-- Conference talks, keynotes, paper walkthroughs
-- Coding livestreams and screencasts
+THE CORE QUESTION TO ASK:
+"Is this user actually LEARNING something useful by watching this — or just getting a hit of DOPAMINE?"
+
+Apply this rigorously. Most "interesting", "viral", or "fun fact" content is dopamine, even when the topic sounds intellectual. Genuine learning is structured, technical, sustained, and skill-building. Erring strict is the entire point — a 5-second recovery UI catches the rare false positive.
+
+UNPRODUCTIVE — these are all real titles. Close all of them and anything similar:
+- "I Trapped 100 Players, But Cactus Rises Every 20 Seconds..."   (gaming + I-did-X clickbait)
+- "Every Leak that Spoiled Endgame"                                (movie content)
+- "All The Spider-Men Discover Their Powers | Compilation"         (movie clips)
+- "MrBeast Is What Marx Warned Us About"                           (commentary / hot take)
+- "Every Feeling You Can't Name Explained"                         (pop-psych dopamine bait)
+- "Tony Stark Court Scene - Iron Man 2 Movie CLIP HD"              (movie clip)
+- "Chimpanzees Have Entered The Stone Age"                         (pop-sci clickbait)
+- "Why Deep Sea Creatures Get Creepier the Deeper You Go"          (pop-sci dopamine bait)
+- "The Greatest Livestream Of All Time"                            (livestream entertainment)
+- "World #1 FACES World No #2 in BLINDFOLD Chess Match"            (competitive entertainment)
+- "I Convinced a Stranger to Rob a Bank"                           (social experiment)
+- "If The Economy Is F*cked, Why Hasn't It Crashed Yet?"           (commentary / hot take)
+- "I Solved Connect 4"                                              (clickbait, even if technical)
+- "the endgame time travel scenes but only the chaotic parts"      (movie edit)
+- "PRANK That's NOT a student..."                                   (prank)
+- "MY 5AM MORNING ROUTINE"                                          (vlog)
+- "TRY NOT TO LAUGH CHALLENGE"                                      (meme)
+Categories: ALL gaming. ALL vlogs. ALL reactions. ALL "I [verb]" challenge videos. Movie/TV recaps, clips, edits, fan content. Celebrity content, drama, gossip, hot takes. Pranks, unboxings. Pop/rap music. YouTube Shorts (always).
+
+PRODUCTIVE — these are real titles. Keep all of them and anything similar:
+- "AP Psychology: Everything You Need To Know! (Units 0-5 Summarized)"
+- "AP Physics 1 - Unit 8 Review - Fluids - Exam Prep"
+- "How to Ace the AP Language Rhetorical Analysis Essay"
+- "Stanford CS229: Machine Learning Lecture 2"
+- "Linear Algebra 14: Inner products and lengths"
+- "But what is a neural network? | Chapter 1, Deep Learning"
+- "How Kafka works (distributed systems deep dive)"
+- "The Story of Stripe: Patrick & John Collison at Y Combinator"
+Categories: Academic lectures, exam prep, structured course material. Real technical tutorials and programming walkthroughs. Long-form interviews with scientists/engineers/founders (Lex with researchers, YC founders, Andrew Ng style). Conference talks, keynotes, paper walkthroughs.
+
+ANTI-PATTERNS in titles — strong unproductive signals:
+- Starts with "I [verb]..." ("I Trapped", "I Solved", "I Convinced")
+- "Every X you didn't know / can't name / spoiled"
+- Numbers + people ("100 Players", "1000 Subscribers", "$250,000")
+- Movie / TV character names (Spider-Man, Iron Man, Marvel, Endgame)
+- "scenes", "clip", "compilation", "moments"
+- Sport competitor names ("vs.", "World #1", "Magnus")
+- "Greatest of all time", "you won't believe", "shocked the world"
+- "creepier than", "scariest", "darkest"
+
 ${musicRule}
 
-UNPRODUCTIVE:
-- Gaming content (Minecraft, Fortnite, GTA, any "let's play"/"gameplay"/"speedrun")
-- Vlogs, day-in-the-life, morning routines
-- Reaction videos, meme compilations, TikTok compilations, "funny moments"
-- Movie/TV recaps, celebrity gossip, drama
-- Pranks, unboxings
-- Pop/rap/rock music videos or songs with visuals (per music rule above)
-- YouTube Shorts (always unproductive by format)
-
-The user is strict-leaning: when truly ambiguous, prefer "unproductive". A 5-second recovery UI handles false positives, so erring strict is OK.
+Decision rule: If you cannot confidently say "this teaches a real, structured skill or subject", choose UNPRODUCTIVE. Bias toward closing.
 
 Respond with ONLY a JSON object, no prose:
 {"verdict": "productive" | "unproductive", "confidence": 0.0-1.0, "reason": "<one short sentence>"}`;
