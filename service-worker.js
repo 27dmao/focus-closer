@@ -617,7 +617,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "clear_video_cache") {
     (async () => {
       const items = await chrome.storage.local.get(null);
-      const toRemove = Object.keys(items).filter((k) => k.startsWith("v:"));
+      const toRemove = Object.keys(items).filter((k) => k.startsWith("v:") || k.startsWith("v2:"));
       if (toRemove.length > 0) await chrome.storage.local.remove(toRemove);
       sendResponse({ ok: true, removed: toRemove.length });
     })();
