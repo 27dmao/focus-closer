@@ -284,10 +284,12 @@
   <div class="card">
     <div class="card-header"><h3>Shortcuts</h3></div>
     <table class="kbd-table">
-      <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd></td><td>Flag current video/tab as distracting</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd></td><td>Mark distracting — closes tab + auto-blocks the channel</td></tr>
+      <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd></td><td>Mark productive — whitelists current video + channel, OR undoes the last close (within 5 min)</td></tr>
       <tr><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd></td><td>Pause / resume (1h by default)</td></tr>
       <tr><td><kbd>ESC</kbd></td><td>Dismiss the close popup</td></tr>
     </table>
+    <div class="help">The two feedback shortcuts (<kbd>X</kbd> and <kbd>S</kbd>) are how the system learns. Each press updates the channel whitelist/blocklist, so all future videos from that channel are handled correctly without ever calling Claude. The classifier converges fast.</div>
     <div class="help">Rebind at <a href="chrome://extensions/shortcuts" target="_blank">chrome://extensions/shortcuts</a>.</div>
   </div>
 

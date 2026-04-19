@@ -757,5 +757,164 @@ chrome.commands.onCommand.addListener(async (command) => {
     const pause = await getPauseState();
     if (pause.paused) await setPauseState(0);
     else await setPauseState(60 * 60 * 1000, "shortcut");
+    return;
+  }
+
+  if (command === "mark-productive") {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+
+    // Helper to commit a "this is productive" decision: whitelist video + channel.
+    async function commitAllow({ videoId, channel }) {
+      let channelAdded = false, channelRemoved = false;
+      if (videoId) {
+        await removeVideoUserBlock(videoId);
+        await addVideoOverride(videoId);
+      }
+      if (channel) {
+        const settings = await getSync();
+        const wl = settings.channelWhitelist || [];
+        const blOriginal = settings.channelBlocklist || [];
+        if (!wl.includes(channel)) { wl.push(channel); channelAdded = true; }
+        const bl = blOriginal.filter((c) => c !== channel);
+        if (bl.length !== blOriginal.length) channelRemoved = true;
+        if (channelAdded || channelRemoved) {
+          await setSync({ channelWhitelist: wl, channelBlocklist: bl });
+        }
+      }
+      return { channelAdded, channelRemoved };
+    }
+
+    function buildAllowReason(channel, channelAdded, channelRemoved, mode) {
+      if (mode === "undo") {
+        if (channelAdded) return `restored — also whitelisted channel "${channel}"`;
+        return "restored from recent close";
+      }
+      if (channelAdded) return `marked productive — whitelisted channel "${channel}"`;
+      if (channelRemoved) return `marked productive — removed "${channel}" from blocklist`;
+      return "marked productive";
+    }
+
+    async function showAllowToastOnTab(tabId, detail) {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          world: "ISOLATED",
+          func: (d) => {
+            const ID = "__focus_closer_allow_toast__";
+            const prev = document.getElementById(ID);
+            if (prev) prev.remove();
+            const host = document.createElement("div");
+            host.id = ID;
+            host.style.cssText = "position:fixed;bottom:16px;right:16px;z-index:2147483647;font:12px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;transform:translateY(6px) scale(0.98);opacity:0;transition:transform 220ms cubic-bezier(0.16,1,0.3,1),opacity 180ms ease-out;";
+            const card = document.createElement("div");
+            card.style.cssText = "background:#1e1e1e;color:#fff;padding:10px 12px;border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,0.45),0 2px 6px rgba(0,0,0,0.25);border-left:3px solid #3ecf8e;min-width:240px;max-width:340px;";
+            const head = document.createElement("div");
+            head.style.cssText = "font-weight:700;letter-spacing:0.4px;margin-bottom:4px;font-size:10px;opacity:0.8;text-transform:uppercase;";
+            head.textContent = "Marked productive";
+            card.appendChild(head);
+            if (d.title) {
+              const t = document.createElement("div");
+              t.style.cssText = "font-weight:600;font-size:12px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;";
+              t.textContent = d.title;
+              card.appendChild(t);
+            }
+            if (d.channel) {
+              const c = document.createElement("div");
+              c.style.cssText = "opacity:0.65;font-size:11px;margin-top:1px;";
+              c.textContent = d.channel;
+              card.appendChild(c);
+            }
+            const r = document.createElement("div");
+            r.style.cssText = "margin-top:4px;opacity:0.75;font-size:11px;line-height:1.35;";
+            r.textContent = d.reason || "";
+            card.appendChild(r);
+            host.appendChild(card);
+            document.documentElement.appendChild(host);
+            requestAnimationFrame(() => { host.style.transform = "translateY(0) scale(1)"; host.style.opacity = "1"; });
+            setTimeout(() => {
+              host.style.transform = "translateY(6px) scale(0.98)";
+              host.style.opacity = "0";
+              setTimeout(() => host.remove(), 200);
+            }, 3000);
+          },
+          args: [detail]
+        });
+      } catch {}
+    }
+
+    // Case 1 — active YouTube /watch tab: preemptive whitelist.
+    if (tab && tab.url && parseYouTubeUrl(tab.url) && tab.id != null) {
+      const parsed = parseYouTubeUrl(tab.url);
+      let meta = {};
+      try {
+        const resp = await chrome.tabs.sendMessage(tab.id, { type: "yt_get_meta" });
+        if (resp?.meta) meta = resp.meta;
+      } catch {}
+      const { channelAdded, channelRemoved } = await commitAllow({ videoId: parsed.videoId, channel: meta.channel });
+      const reason = buildAllowReason(meta.channel, channelAdded, channelRemoved, "preempt");
+      await logDecision({
+        kind: "user_allow",
+        videoId: parsed.videoId,
+        url: tab.url,
+        title: meta.title || tab.title,
+        channel: meta.channel,
+        verdict: "productive",
+        reason,
+        source: "user_allow"
+      });
+      await showAllowToastOnTab(tab.id, { title: meta.title || tab.title, channel: meta.channel, reason });
+      return;
+    }
+
+    // Case 2 — recent close in the last 5 minutes: undo it.
+    const log = await getLog();
+    const FIVE_MIN = 5 * 60 * 1000;
+    const recent = [...log].reverse().find((e) =>
+      Date.now() - e.at < FIVE_MIN &&
+      (e.verdict === "unproductive" || e.kind === "blocklist" || e.kind === "user_flag")
+    );
+
+    if (recent) {
+      let reason;
+      if (recent.kind === "blocklist" && recent.matchedEntry) {
+        await setOverride(recent.matchedEntry, null);
+        reason = `restored — "${recent.matchedEntry}" permanently unblocked`;
+      } else {
+        const { channelAdded } = await commitAllow({ videoId: recent.videoId, channel: recent.channel });
+        reason = buildAllowReason(recent.channel, channelAdded, false, "undo");
+      }
+      await logDecision({
+        kind: "user_allow",
+        videoId: recent.videoId,
+        url: recent.url,
+        title: recent.title,
+        channel: recent.channel,
+        hostname: recent.hostname,
+        verdict: "productive",
+        reason,
+        source: "user_allow"
+      });
+      const newTab = recent.url ? await chrome.tabs.create({ url: recent.url }) : null;
+      if (newTab?.id != null) {
+        // After the page loads, show the confirmation toast there.
+        const tabId = newTab.id;
+        chrome.tabs.onUpdated.addListener(function listener(updatedId, info) {
+          if (updatedId !== tabId || info.status !== "complete") return;
+          chrome.tabs.onUpdated.removeListener(listener);
+          showAllowToastOnTab(tabId, { title: recent.title, channel: recent.channel, reason });
+        });
+      }
+      return;
+    }
+
+    // Case 3 — nothing to act on.
+    try {
+      await chrome.notifications.create({
+        type: "basic",
+        iconUrl: chrome.runtime.getURL("icons/icon-128.png"),
+        title: "Focus Closer",
+        message: "Nothing to mark productive — open a YouTube video first, or use within 5 minutes of a close."
+      });
+    } catch {}
   }
 });
