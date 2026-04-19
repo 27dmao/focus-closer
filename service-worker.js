@@ -31,7 +31,6 @@ import {
   clearPersonalPolicy
 } from "./lib/storage.js";
 import { logDecision, getStats, getLog, clearLog, removeLogEntry, getLogEntry } from "./lib/logger.js";
-import { generateSuggestions } from "./lib/suggestions.js";
 import { classifyLocally } from "./classifier/rules.js";
 import { classifyWithClaude } from "./classifier/claude.js";
 import { generateInsights } from "./classifier/insights.js";
@@ -516,14 +515,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         getFeedbackHistory(),
         getUnreflectedCount()
       ]);
-      const suggestions = generateSuggestions(log, settings);
       const heatmap = buildHourHeatmap(log);
       const feedbackCounts = {
         flags: history.flags?.length || 0,
         allows: history.allows?.length || 0,
         unreflected
       };
-      sendResponse({ stats, settings, installedAt: meta.installedAt, session, insights, suggestions, heatmap, policy, feedbackCounts });
+      sendResponse({ stats, settings, installedAt: meta.installedAt, session, insights, heatmap, policy, feedbackCounts });
     })();
     return true;
   }
@@ -539,29 +537,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "clear_personal_policy") {
     (async () => {
       await clearPersonalPolicy();
-      sendResponse({ ok: true });
-    })();
-    return true;
-  }
-
-  if (msg?.type === "apply_suggestion") {
-    (async () => {
-      const a = msg.action || {};
-      if (a.type === "add_channel_blocklist" && a.channel) {
-        const settings = await getSync();
-        const list = settings.channelBlocklist || [];
-        if (!list.includes(a.channel)) {
-          list.push(a.channel);
-          await setSync({ channelBlocklist: list });
-        }
-      } else if (a.type === "add_channel_whitelist" && a.channel) {
-        const settings = await getSync();
-        const list = settings.channelWhitelist || [];
-        if (!list.includes(a.channel)) {
-          list.push(a.channel);
-          await setSync({ channelWhitelist: list });
-        }
-      }
       sendResponse({ ok: true });
     })();
     return true;

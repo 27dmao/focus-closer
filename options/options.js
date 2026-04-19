@@ -125,49 +125,6 @@ function renderPolicy(policy, feedbackCounts) {
   }
 }
 
-function renderSuggestions(suggestions) {
-  const card = $("suggestionsCard");
-  const host = $("suggestions");
-  host.innerHTML = "";
-  const shown = (suggestions || []).filter((s) => s.kind !== "info");
-  if (shown.length === 0) {
-    card.classList.add("hidden");
-    return;
-  }
-  card.classList.remove("hidden");
-  for (const s of shown) {
-    const item = document.createElement("div");
-    item.className = "suggestion";
-    const title = document.createElement("div");
-    title.className = "suggestion-title";
-    title.textContent = s.title;
-    const body = document.createElement("div");
-    body.className = "suggestion-body";
-    body.textContent = s.body;
-    item.appendChild(title);
-    item.appendChild(body);
-    if (s.action) {
-      const actions = document.createElement("div");
-      actions.className = "suggestion-actions";
-      const apply = document.createElement("button");
-      apply.className = "btn-tiny";
-      apply.textContent = "Apply";
-      apply.addEventListener("click", async () => {
-        await send("apply_suggestion", { action: s.action });
-        refreshDashboard();
-      });
-      const dismiss = document.createElement("button");
-      dismiss.className = "btn-tiny ghost";
-      dismiss.textContent = "Dismiss";
-      dismiss.addEventListener("click", () => item.remove());
-      actions.appendChild(apply);
-      actions.appendChild(dismiss);
-      item.appendChild(actions);
-    }
-    host.appendChild(item);
-  }
-}
-
 function renderHeatmap(grid) {
   const host = $("heatmap");
   host.innerHTML = "";
@@ -253,7 +210,6 @@ async function refreshDashboard() {
   }
 
   renderPolicy(data.policy, data.feedbackCounts);
-  renderSuggestions(data.suggestions);
   renderHeatmap(data.heatmap);
 
   const bd = $("sourceBreakdown");
