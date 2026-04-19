@@ -35,8 +35,6 @@ body { min-height: 100vh; }
 
 .status { display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--productive); box-shadow: 0 0 8px var(--productive); }
-.status-dot.paused { background: #f5a623; box-shadow: 0 0 8px #f5a623; }
-.sep { width: 1px; height: 18px; background: var(--border); margin: 0 6px; }
 
 .tabs {
   display: flex; gap: 4px;

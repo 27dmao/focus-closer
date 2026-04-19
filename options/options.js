@@ -78,35 +78,11 @@ let currentLog = [];
 async function refreshStatusBar() {
   const data = await send("get_dashboard");
   if (!data || !data.stats) return;
-  const pause = data.pause || { paused: false };
   const session = data.session || { active: false };
-
-  const dot = $("statusDot");
-  const text = $("statusText");
-  const resumeBtn = $("resumeBtn");
-  const pauseBtn = $("pauseBtn");
-  const pauseToday = $("pauseTodayBtn");
-  if (pause.paused) {
-    dot.classList.add("paused");
-    if (pause.pausedUntil) {
-      const min = Math.max(1, Math.round((pause.pausedUntil - Date.now()) / 60000));
-      text.textContent = `Paused · resumes in ${min < 60 ? min + "m" : Math.round(min / 60) + "h"}`;
-    } else {
-      text.textContent = "Paused · indefinitely";
-    }
-    resumeBtn.classList.remove("hidden");
-    pauseBtn.classList.add("hidden");
-    pauseToday.classList.add("hidden");
-  } else {
-    dot.classList.remove("paused");
-    text.textContent = session?.active ? "Focus Session" : "Active";
-    resumeBtn.classList.add("hidden");
-    pauseBtn.classList.remove("hidden");
-    pauseToday.classList.remove("hidden");
-  }
+  $("statusText").textContent = session.active ? "Focus Session" : "Active";
 
   const banner = $("sessionBanner");
-  if (session?.active) {
+  if (session.active) {
     banner.classList.remove("hidden");
     const minLeft = Math.max(1, Math.round((session.endsAt - Date.now()) / 60000));
     $("sessionSub").textContent = `${session.task} · ${minLeft}m left · ${session.closesDuringSession || 0} blocked`;
@@ -572,21 +548,6 @@ $("clearCache").addEventListener("click", async () => {
 $("replayOnboarding").addEventListener("click", async () => {
   await send("set_settings", { partial: { onboardingComplete: false } });
   $("onboarding").classList.remove("hidden");
-});
-$("pauseBtn").addEventListener("click", async () => {
-  await send("set_pause", { durationMs: 60 * 60 * 1000, reason: "manual" });
-  refreshStatusBar();
-  refreshDashboard();
-});
-$("pauseTodayBtn").addEventListener("click", async () => {
-  const end = new Date();
-  end.setHours(23, 59, 59, 999);
-  await send("set_pause", { durationMs: end.getTime() - Date.now(), reason: "manual" });
-  refreshStatusBar();
-});
-$("resumeBtn").addEventListener("click", async () => {
-  await send("set_pause", { durationMs: 0 });
-  refreshStatusBar();
 });
 $("insightsGenerate").addEventListener("click", generateInsights);
 ["logSearch", "logVerdict", "logKind"].forEach((id) => {

@@ -14,8 +14,6 @@ import {
   setOverride,
   entryMatchesUrl,
   parseBlocklistEntry,
-  getPauseState,
-  setPauseState,
   getOrInitInstallMeta,
   getSessionState,
   startSession,
@@ -246,20 +244,8 @@ function popupRendererSource() {
     card.appendChild(actions);
 
     const meta = document.createElement("div");
-    meta.style.cssText = "margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center;font-size:9px;opacity:0.5;";
-    const left = document.createElement("span");
-    left.textContent = "ESC to dismiss · hover to hold";
-    const right = document.createElement("a");
-    right.textContent = "Pause extension";
-    right.href = "#";
-    right.style.cssText = "color:inherit;text-decoration:underline;cursor:pointer;";
-    right.addEventListener("click", (e) => {
-      e.preventDefault();
-      chrome.runtime.sendMessage({ type: "popup_action", payload: { action: "pause", durationMs: 60 * 60 * 1000 } });
-      cleanup();
-    });
-    meta.appendChild(left);
-    meta.appendChild(right);
+    meta.style.cssText = "margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.08);font-size:9px;opacity:0.5;text-align:center;";
+    meta.textContent = "ESC to dismiss · hover to hold";
     card.appendChild(meta);
 
     host.appendChild(card);
@@ -387,7 +373,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "yt_metadata") {
     (async () => {
       const settings = await getSync();
-      const pause = await getPauseState();
       const session = await getSessionState();
       const { meta } = msg;
       const result = await classifyVideo(meta, settings, session.active);
@@ -403,8 +388,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         ...result
       });
 
-      const shouldClose = result.verdict === "unproductive" && !pause.paused;
-      sendResponse({ ok: true, result, willClose: shouldClose, paused: pause.paused });
+      const shouldClose = result.verdict === "unproductive";
+      sendResponse({ ok: true, result, willClose: shouldClose });
 
       if (shouldClose && sender.tab?.id != null) {
         await closeAndNotify(sender.tab.id, {
@@ -461,8 +446,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           list.push(p.channel);
           await setSync({ channelBlocklist: list });
         }
-      } else if (p.action === "pause") {
-        await setPauseState(p.durationMs, "popup");
       }
       sendResponse({ ok: true });
     })();
@@ -471,9 +454,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg?.type === "get_dashboard") {
     (async () => {
-      const [stats, pause, settings, meta, session, insights, log] = await Promise.all([
+      const [stats, settings, meta, session, insights, log] = await Promise.all([
         getStats(),
-        getPauseState(),
         getSync(),
         getOrInitInstallMeta(),
         getSessionState(),
@@ -482,7 +464,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       ]);
       const suggestions = generateSuggestions(log, settings);
       const heatmap = buildHourHeatmap(log);
-      sendResponse({ stats, pause, settings, installedAt: meta.installedAt, session, insights, suggestions, heatmap });
+      sendResponse({ stats, settings, installedAt: meta.installedAt, session, insights, suggestions, heatmap });
     })();
     return true;
   }
@@ -627,14 +609,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  if (msg?.type === "set_pause") {
-    (async () => {
-      await setPauseState(msg.durationMs, msg.reason || "manual");
-      sendResponse({ ok: true });
-    })();
-    return true;
-  }
-
   if (msg?.type === "clear_video_cache") {
     (async () => {
       const items = await chrome.storage.local.get(null);
@@ -652,9 +626,6 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
   if (!parsed) return;
   const { hostname, pathname } = parsed;
   if (isWorkWhitelisted(hostname)) return;
-
-  const pause = await getPauseState();
-  if (pause.paused) return;
 
   const settings = await getSync();
   const matchedEntry = findMatchingBlocklistEntry(hostname, pathname, settings.blocklist, settings.domainToggles);
@@ -750,13 +721,6 @@ chrome.commands.onCommand.addListener(async (command) => {
       lengthSeconds: meta.lengthSeconds || 0,
       reason
     });
-    return;
-  }
-
-  if (command === "toggle-pause") {
-    const pause = await getPauseState();
-    if (pause.paused) await setPauseState(0);
-    else await setPauseState(60 * 60 * 1000, "shortcut");
     return;
   }
 

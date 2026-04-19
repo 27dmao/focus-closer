@@ -27,7 +27,7 @@
         <button class="btn-ghost" id="onboardSkip1">I'll set this up later</button>
         <button class="btn-primary" id="onboardDone">Start focusing →</button>
       </div>
-      <div class="onboard-hint">Shortcuts: <kbd>⌘+Shift+X</kbd> mark distracting · <kbd>⌘+Shift+S</kbd> mark productive · <kbd>⌘+Shift+P</kbd> pause 1h</div>
+      <div class="onboard-hint">Shortcuts: <kbd>⌘+Shift+X</kbd> mark distracting · <kbd>⌘+Shift+S</kbd> mark productive</div>
     </div>
   </div>
 </div>
@@ -43,10 +43,6 @@
   <div class="status" id="statusArea">
     <span class="status-dot" id="statusDot"></span>
     <span id="statusText">Active</span>
-    <span class="sep"></span>
-    <button class="btn-ghost" id="pauseBtn">Pause 1h</button>
-    <button class="btn-ghost" id="pauseTodayBtn">Pause today</button>
-    <button class="btn-ghost hidden" id="resumeBtn">Resume</button>
   </div>
 </header>
 
@@ -286,7 +282,6 @@
     <table class="kbd-table">
       <tr><td><kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd></td><td>Mark distracting — closes tab + auto-blocks the channel</td></tr>
       <tr><td><kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd></td><td>Mark productive — whitelists current video + channel, OR undoes the last close (within 5 min)</td></tr>
-      <tr><td><kbd>⌘</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd></td><td>Pause / resume (1h by default)</td></tr>
       <tr><td><kbd>ESC</kbd></td><td>Dismiss the close popup</td></tr>
     </table>
     <div class="help">The two feedback shortcuts (<kbd>X</kbd> and <kbd>S</kbd>) are how the system learns. Each press updates the channel whitelist/blocklist, so all future videos from that channel are handled correctly without ever calling Claude. The classifier converges fast. (On Windows/Linux: <kbd>Ctrl</kbd> instead of <kbd>⌘</kbd>.)</div>
