@@ -1,7 +1,18 @@
 const $ = (id) => document.getElementById(id);
 
-function send(type, extra = {}) {
-  return chrome.runtime.sendMessage({ type, ...extra });
+// Chrome MV3 service workers can be cold on first message burst — retry once on undefined.
+async function send(type, extra = {}) {
+  const msg = { type, ...extra };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await chrome.runtime.sendMessage(msg);
+      if (res !== undefined) return res;
+    } catch (e) {
+      if (attempt === 1) console.warn(`[focus-closer] send(${type})`, e);
+    }
+    await new Promise((r) => setTimeout(r, 120));
+  }
+  return {};
 }
 
 function linesToArray(text) {
@@ -66,8 +77,9 @@ let currentLog = [];
 
 async function refreshStatusBar() {
   const data = await send("get_dashboard");
-  const pause = data.pause;
-  const session = data.session;
+  if (!data || !data.stats) return;
+  const pause = data.pause || { paused: false };
+  const session = data.session || { active: false };
 
   const dot = $("statusDot");
   const text = $("statusText");
@@ -185,6 +197,7 @@ function renderHeatmap(grid) {
 
 async function refreshDashboard() {
   const data = await send("get_dashboard");
+  if (!data || !data.stats) return;
   const stats = data.stats;
 
   const score = computeAttentionScore(stats);
@@ -260,7 +273,8 @@ async function refreshDashboard() {
   }
   if (bd.children.length === 0) bd.innerHTML = `<div class="empty">No data yet — use the extension for a bit.</div>`;
 
-  const { log } = await send("get_log");
+  const logResp = await send("get_log");
+  const log = logResp?.log || [];
   const recentCloses = log
     .filter((e) => e.verdict === "unproductive" || e.kind === "blocklist" || e.kind === "user_flag")
     .slice(-8).reverse();
@@ -292,7 +306,8 @@ async function refreshDashboard() {
 }
 
 async function refreshLog() {
-  const { log } = await send("get_log");
+  const logResp = await send("get_log");
+  const log = logResp?.log || [];
   currentLog = log.slice().reverse();
   renderLog();
 }
@@ -430,7 +445,8 @@ async function generateInsights() {
 }
 
 async function loadRules() {
-  const { settings } = await send("get_dashboard");
+  const data = await send("get_dashboard");
+  const settings = data?.settings || {};
   $("apiKey").value = settings.apiKey || "";
   $("musicRule").value = settings.musicRule || "instrumental_only";
   $("blocklist").value = (settings.blocklist || []).join("\n");
@@ -462,7 +478,8 @@ async function saveRules() {
 
 // Onboarding
 async function maybeShowOnboarding() {
-  const { settings } = await send("get_dashboard");
+  const data = await send("get_dashboard");
+  const settings = data?.settings || {};
   // Migration: if user already has an API key, consider onboarding done.
   if (settings.apiKey && !settings.onboardingComplete) {
     await send("set_settings", { partial: { onboardingComplete: true } });
