@@ -465,7 +465,13 @@ function popupRendererSource() {
     }
 
     if (isUserFlag) {
-      actions.appendChild(mkBtn("Undo", { action: "undo_user_flag", videoId: detail.videoId, url: detail.url, channel: detail.channelAutoBlocked ? detail.channel : null }, true));
+      actions.appendChild(mkBtn("Undo", {
+        action: "undo_user_flag",
+        videoId: detail.videoId,
+        url: detail.url,
+        channel: detail.channelAutoBlocked ? detail.channel : null,
+        hostname: detail.domainAutoBlocked ? detail.hostname : null
+      }, true));
     } else if (isYt) {
       actions.appendChild(mkBtn("Reopen (false positive)", { action: "reopen_video", videoId: detail.videoId, url: detail.url }, true));
       if (detail.channel) {
@@ -751,6 +757,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const settings = await getSync();
           const list = (settings.channelBlocklist || []).filter((c) => c !== p.channel);
           await setSync({ channelBlocklist: list });
+        }
+        // Non-YouTube case: undo the auto-add to the URL blocklist too.
+        if (p.hostname) {
+          const settings = await getSync();
+          const list = (settings.blocklist || []).filter((d) => d !== p.hostname);
+          await setSync({ blocklist: list });
         }
         if (p.url) await chrome.tabs.create({ url: p.url });
       } else if (p.action === "reopen_once") {
@@ -1285,9 +1297,11 @@ chrome.commands.onCommand.addListener(async (command) => {
       kind: "user_flag",
       videoId: parsed?.videoId,
       url: tab.url,
+      hostname,
       title: meta.title || tab.title,
       channel: meta.channel,
       channelAutoBlocked,
+      domainAutoBlocked: !!meta._domainAutoBlocked,
       lengthSeconds: meta.lengthSeconds || 0,
       reason
     });
