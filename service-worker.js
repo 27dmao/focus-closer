@@ -24,7 +24,7 @@ import {
   getInsightsCache,
   setInsightsCache
 } from "./lib/storage.js";
-import { logDecision, getStats, getLog, clearLog } from "./lib/logger.js";
+import { logDecision, getStats, getLog, clearLog, removeLogEntry, getLogEntry } from "./lib/logger.js";
 import { generateSuggestions } from "./lib/suggestions.js";
 import { classifyLocally } from "./classifier/rules.js";
 import { classifyWithClaude } from "./classifier/claude.js";
@@ -553,6 +553,64 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg?.type === "clear_log") {
     (async () => { await clearLog(); sendResponse({ ok: true }); })();
+    return true;
+  }
+
+  if (msg?.type === "remove_log_entry") {
+    (async () => {
+      const res = await removeLogEntry(msg.at);
+      sendResponse({ ok: true, ...res });
+    })();
+    return true;
+  }
+
+  if (msg?.type === "refute_log_entry") {
+    (async () => {
+      const entry = await getLogEntry(msg.at);
+      if (!entry) { sendResponse({ ok: false, error: "not_found" }); return; }
+      const isClose = entry.verdict === "unproductive" || entry.kind === "blocklist" || entry.kind === "user_flag";
+
+      if (entry.kind === "youtube" || entry.kind === "user_flag") {
+        if (!entry.videoId) { sendResponse({ ok: false, error: "no_video_id" }); return; }
+        if (isClose) {
+          // Wrongly closed — whitelist the video + the channel (if we have it)
+          await removeVideoUserBlock(entry.videoId);
+          await addVideoOverride(entry.videoId);
+          if (entry.channel) {
+            const settings = await getSync();
+            const wl = settings.channelWhitelist || [];
+            if (!wl.includes(entry.channel)) {
+              wl.push(entry.channel);
+              await setSync({ channelWhitelist: wl });
+            }
+          }
+          sendResponse({ ok: true, action: "video_whitelisted" });
+        } else {
+          // Wrongly kept — user-block the video + the channel (if we have it)
+          await removeVideoOverride(entry.videoId);
+          await addVideoUserBlock(entry.videoId);
+          if (entry.channel) {
+            const settings = await getSync();
+            const bl = settings.channelBlocklist || [];
+            if (!bl.includes(entry.channel)) {
+              bl.push(entry.channel);
+              await setSync({ channelBlocklist: bl });
+            }
+          }
+          sendResponse({ ok: true, action: "video_blocked" });
+        }
+        return;
+      }
+
+      if (entry.kind === "blocklist") {
+        // Wrongly blocked — permanent override for the matched entry so future visits pass.
+        if (entry.matchedEntry) await setOverride(entry.matchedEntry, null);
+        sendResponse({ ok: true, action: "domain_unblocked" });
+        return;
+      }
+
+      sendResponse({ ok: false, error: "unsupported_kind" });
+    })();
     return true;
   }
 

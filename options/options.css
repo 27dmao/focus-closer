@@ -153,6 +153,16 @@ button { font: inherit; cursor: pointer; }
 .pill-flag { background: #f57c0033; color: #ffb36b; }
 .log-target { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+.log-actions { display: flex; gap: 4px; justify-content: flex-end; white-space: nowrap; }
+.log-actions button {
+  background: transparent; border: 1px solid var(--border); color: var(--text-dim);
+  padding: 4px 8px; border-radius: 5px; font: 600 10px/1 inherit; cursor: pointer;
+  text-transform: uppercase; letter-spacing: 0.04em; transition: all 0.12s;
+}
+.log-actions button:hover { color: var(--text); border-color: var(--accent); }
+.log-actions button.refute:hover { color: #ffb36b; border-color: #f57c00; }
+.log-actions button.remove:hover { color: var(--unproductive); border-color: var(--unproductive); }
+
 .numbered { margin: 0; padding-left: 20px; }
 .numbered li { margin-bottom: 8px; font-size: 13px; color: var(--text-dim); }
 .numbered li b { color: var(--text); }

@@ -333,7 +333,7 @@ function renderLog() {
   const body = $("logBody");
   body.innerHTML = "";
   if (filtered.length === 0) {
-    body.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text-mute);padding:30px;">No entries match.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--text-mute);padding:30px;">No entries match.</td></tr>`;
     return;
   }
   for (const e of filtered.slice(0, 500)) {
@@ -352,9 +352,40 @@ function renderLog() {
       <td class="log-target"></td>
       <td></td>
       <td>${e.source || ""}</td>
+      <td><div class="log-actions"></div></td>
     `;
     tr.querySelector(".log-target").textContent = target;
     tr.querySelectorAll("td")[4].textContent = e.reason || "";
+    const actions = tr.querySelector(".log-actions");
+    const canRefute = (e.kind === "youtube" && e.videoId) ||
+                      (e.kind === "user_flag" && e.videoId) ||
+                      (e.kind === "blocklist" && e.matchedEntry);
+    if (canRefute) {
+      const refuteBtn = document.createElement("button");
+      refuteBtn.className = "refute";
+      refuteBtn.textContent = "Refute";
+      refuteBtn.title = isClose
+        ? "Mark as wrongly closed — future visits will pass through"
+        : "Mark as wrongly kept — future visits will close";
+      refuteBtn.addEventListener("click", async () => {
+        const verb = isClose ? "whitelist" : "block";
+        if (!confirm(`Refute this decision? Focus Closer will ${verb} this ${e.kind === "blocklist" ? "domain" : "video/channel"} going forward.`)) return;
+        const res = await send("refute_log_entry", { at: e.at });
+        if (res?.ok) refreshLog();
+        else alert("Couldn't refute this entry.");
+      });
+      actions.appendChild(refuteBtn);
+    }
+    const removeBtn = document.createElement("button");
+    removeBtn.className = "remove";
+    removeBtn.textContent = "×";
+    removeBtn.title = "Remove this entry from the log";
+    removeBtn.addEventListener("click", async () => {
+      await send("remove_log_entry", { at: e.at });
+      refreshLog();
+      refreshDashboard();
+    });
+    actions.appendChild(removeBtn);
     body.appendChild(tr);
   }
 }
