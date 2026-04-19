@@ -410,6 +410,7 @@ kbd {
 .model-cost-table .speed-fastest { color: var(--productive); }
 .model-cost-table .speed-medium { color: #f5a623; }
 .model-cost-table .speed-slow { color: var(--unproductive); }
+.model-cost-table .speed-slowest { color: var(--unproductive); }
 .model-cost-table .current-badge {
   background: rgba(62, 207, 142, 0.15); color: var(--productive);
   padding: 2px 10px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 600;

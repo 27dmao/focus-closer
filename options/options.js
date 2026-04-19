@@ -169,7 +169,7 @@ async function renderModelCostTable() {
     return;
   }
 
-  const speedLabel = { fastest: "Fastest", medium: "Medium", slow: "Slow" };
+  const speedLabel = { fastest: "Fastest", medium: "Medium", slow: "Slow", slowest: "Slowest" };
   tbody.innerHTML = projections.map((p) => {
     const isCurrent = p.id === currentId;
     const action = isCurrent
