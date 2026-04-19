@@ -55,7 +55,8 @@ import {
   onIdleStateChanged as trackerOnIdleStateChanged,
   recoverFromSwDeath as trackerRecoverFromSwDeath,
   getCurrentSnapshot as trackerCurrentSnapshot,
-  getDomainStatus as trackerDomainStatus
+  getDomainStatus as trackerDomainStatus,
+  onHeartbeatTick as trackerHeartbeatTick
 } from "./lib/tracker.js";
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -65,12 +66,14 @@ chrome.runtime.onInstalled.addListener(async () => {
   try { chrome.idle.setDetectionInterval(30); } catch {}
   try { chrome.alarms.create("prune_buckets", { periodInMinutes: 24 * 60 }); } catch {}
   try { chrome.alarms.create("training_check", { periodInMinutes: 5 }); } catch {}
+  try { chrome.alarms.create("tracker_heartbeat", { periodInMinutes: 0.5 }); } catch {}
 });
 chrome.runtime.onStartup.addListener(async () => {
   getOrInitInstallMeta();
   try { chrome.idle.setDetectionInterval(30); } catch {}
   try { chrome.alarms.create("prune_buckets", { periodInMinutes: 24 * 60 }); } catch {}
   try { chrome.alarms.create("training_check", { periodInMinutes: 5 }); } catch {}
+  try { chrome.alarms.create("tracker_heartbeat", { periodInMinutes: 0.5 }); } catch {}
 });
 
 // Recover any in-flight tracker session left behind when the SW died.
@@ -554,6 +557,10 @@ async function notifyTrainingEnded() {
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === "tracker_heartbeat") {
+    try { await trackerHeartbeatTick(); } catch (e) { console.warn("[focus-closer] heartbeat failed", e); }
+    return;
+  }
   if (alarm.name === "prune_buckets") {
     try { await pruneOldBuckets(); } catch (e) { console.warn("[focus-closer] prune failed", e); }
     return;
