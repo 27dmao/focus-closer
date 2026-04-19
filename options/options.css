@@ -303,6 +303,15 @@ kbd {
 .prompt-card .card-sub { font-size: 10px; padding: 3px 8px; border-radius: 999px; background: var(--bg-elev-2); border: 1px solid var(--border); color: var(--text-dim); text-transform: uppercase; font-weight: 700; letter-spacing: 0.06em; }
 .prompt-card .card-sub.custom { background: rgba(255, 107, 74, 0.15); border-color: rgba(255, 107, 74, 0.4); color: var(--accent); }
 .prompt-textarea { min-height: 360px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace; font-size: 12px; line-height: 1.5; }
+
+.policy-link { color: var(--accent); font-size: 12px; font-weight: 600; text-decoration: none; margin-left: auto; }
+.policy-link:hover { text-decoration: underline; }
+.prompt-card.flash { animation: card-flash 1.4s ease-out; }
+@keyframes card-flash {
+  0% { box-shadow: 0 0 0 0 rgba(255, 107, 74, 0); }
+  20% { box-shadow: 0 0 0 6px rgba(255, 107, 74, 0.35); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 107, 74, 0); }
+}
 .policy-summary { color: var(--text-dim); font-size: 13px; line-height: 1.55; margin-bottom: 12px; }
 .policy-summary:empty { display: none; }
 .policy-rules { list-style: none; padding: 0; margin: 0 0 12px; display: flex; flex-direction: column; gap: 6px; }

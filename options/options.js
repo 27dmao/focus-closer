@@ -664,6 +664,18 @@ async function applyBrief() {
 $("briefApplyBtn").addEventListener("click", applyBrief);
 $("savePromptBtn").addEventListener("click", saveSystemPrompt);
 $("resetPromptBtn").addEventListener("click", resetSystemPrompt);
+$("viewPromptLink").addEventListener("click", (e) => {
+  e.preventDefault();
+  document.querySelector('.tab[data-tab="rules"]').click();
+  setTimeout(() => {
+    const card = document.querySelector(".prompt-card");
+    if (card) {
+      card.scrollIntoView({ behavior: "smooth", block: "start" });
+      card.classList.add("flash");
+      setTimeout(() => card.classList.remove("flash"), 1400);
+    }
+  }, 60);
+});
 
 // Sessions
 $("sessionStartBtn").addEventListener("click", async () => {
@@ -725,13 +737,15 @@ $("reflectBtn").addEventListener("click", async () => {
   const res = await send("run_reflection");
   btn.disabled = false;
   btn.textContent = "Re-distill from feedback";
-  if (res?.policy?.error) {
-    status.textContent = res.policy.reason || res.policy.error;
+  if (!res?.ok) {
+    const err = res?.error || res?.policy;
+    status.textContent = (err?.reason || err?.error || "Distillation failed.") + " (check Anthropic API key + balance)";
     status.style.color = "var(--unproductive)";
   } else {
-    status.textContent = "Updated ✓";
+    const n = res.policy?.rules?.length || 0;
+    status.textContent = `Distilled ${n} rule${n === 1 ? "" : "s"} ✓`;
     status.style.color = "";
-    setTimeout(() => (status.textContent = ""), 2500);
+    setTimeout(() => (status.textContent = ""), 3000);
   }
   refreshDashboard();
 });

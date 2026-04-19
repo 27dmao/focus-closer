@@ -42,16 +42,18 @@ chrome.runtime.onStartup.addListener(() => { getOrInitInstallMeta(); });
 // the (possibly updated) policy.
 async function maybeRunReflection({ force = false } = {}) {
   const settings = await getSync();
-  if (!settings.apiKey) return await getPersonalPolicy();
+  if (!settings.apiKey) return { error: "no_api_key", reason: "Add your Anthropic API key on the Rules tab." };
 
   const unreflected = await getUnreflectedCount();
-  if (!force && unreflected < REFLECTION_THRESHOLD) return await getPersonalPolicy();
+  if (!force && unreflected < REFLECTION_THRESHOLD) {
+    return await getPersonalPolicy() || { error: "below_threshold", reason: `Need ${REFLECTION_THRESHOLD} new feedback signals; you have ${unreflected}.` };
+  }
 
   const history = await getFeedbackHistory();
   const result = await distillPolicy(history, settings.apiKey);
   if (result.error) {
     console.warn("[focus-closer] reflection failed:", result.error, result.reason);
-    return await getPersonalPolicy();
+    return result;
   }
   await setPersonalPolicy(result);
   await markReflected();
@@ -526,7 +528,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "run_reflection") {
     (async () => {
       const result = await maybeRunReflection({ force: true });
-      sendResponse({ ok: true, policy: result });
+      const ok = !!(result && !result.error);
+      sendResponse({ ok, policy: ok ? result : null, error: ok ? null : result });
     })();
     return true;
   }

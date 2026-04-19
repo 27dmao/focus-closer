@@ -9,7 +9,8 @@
 // Triggered automatically every REFLECTION_THRESHOLD new flags/allows, or
 // manually from the dashboard.
 
-const REFLECTION_MODEL = "claude-sonnet-4-6";
+// Try Sonnet first for quality; fall back to Haiku if unavailable.
+const REFLECTION_MODELS = ["claude-sonnet-4-6", "claude-haiku-4-5-20251001"];
 const ENDPOINT = "https://api.anthropic.com/v1/messages";
 const MAX_TOKENS = 1200;
 const MIN_FEEDBACK_FOR_REFLECTION = 4;
@@ -79,48 +80,55 @@ ${fmtList(allows, "User flagged PRODUCTIVE (keep anything similar)")}
 
 Distill into POLICY RULES.`;
 
-  try {
-    const res = await fetch(ENDPOINT, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true"
-      },
-      body: JSON.stringify({
-        model: REFLECTION_MODEL,
-        max_tokens: MAX_TOKENS,
-        system,
-        messages: [{ role: "user", content: user }]
-      })
-    });
+  let lastError = null;
+  for (const model of REFLECTION_MODELS) {
+    try {
+      const res = await fetch(ENDPOINT, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true"
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: MAX_TOKENS,
+          system,
+          messages: [{ role: "user", content: user }]
+        })
+      });
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      return { error: `http_${res.status}`, reason: text.slice(0, 200) || `HTTP ${res.status}` };
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        lastError = { error: `http_${res.status}`, reason: `${model}: ${text.slice(0, 200) || `HTTP ${res.status}`}` };
+        continue;
+      }
+
+      const json = await res.json();
+      const text = json?.content?.[0]?.text?.trim() || "";
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) { lastError = { error: "parse_failed", reason: text.slice(0, 200) }; continue; }
+
+      let parsed;
+      try { parsed = JSON.parse(match[0]); }
+      catch { lastError = { error: "parse_failed", reason: text.slice(0, 200) }; continue; }
+
+      if (!Array.isArray(parsed.rules) || parsed.rules.length === 0) {
+        lastError = { error: "no_rules", reason: "Reflection produced no rules." };
+        continue;
+      }
+
+      return {
+        rules: parsed.rules.slice(0, 12),
+        summary: parsed.summary || "",
+        feedbackCount: total,
+        modelUsed: model,
+        generatedAt: Date.now()
+      };
+    } catch (e) {
+      lastError = { error: "network", reason: `${model}: ${String(e?.message || e)}` };
     }
-
-    const json = await res.json();
-    const text = json?.content?.[0]?.text?.trim() || "";
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return { error: "parse_failed", reason: text.slice(0, 200) };
-
-    let parsed;
-    try { parsed = JSON.parse(match[0]); }
-    catch { return { error: "parse_failed", reason: text.slice(0, 200) }; }
-
-    if (!Array.isArray(parsed.rules) || parsed.rules.length === 0) {
-      return { error: "no_rules", reason: "Reflection produced no rules." };
-    }
-
-    return {
-      rules: parsed.rules.slice(0, 12),
-      summary: parsed.summary || "",
-      feedbackCount: total,
-      generatedAt: Date.now()
-    };
-  } catch (e) {
-    return { error: "network", reason: String(e?.message || e) };
   }
+  return lastError || { error: "unknown", reason: "All reflection models failed." };
 }
