@@ -1,4 +1,6 @@
-const MODEL = "claude-haiku-4-5-20251001";
+import { DEFAULT_MODEL } from "../lib/pricing.js";
+import { logUsage } from "../lib/usage.js";
+
 const ENDPOINT = "https://api.anthropic.com/v1/messages";
 const MAX_TOKENS = 200;
 
@@ -123,8 +125,9 @@ export async function classifyWithClaude(meta, settings, history) {
     };
   }
 
+  const modelId = settings.classifierModel || DEFAULT_MODEL;
   const body = {
-    model: MODEL,
+    model: modelId,
     max_tokens: MAX_TOKENS,
     system: [
       {
@@ -158,6 +161,9 @@ export async function classifyWithClaude(meta, settings, history) {
     }
 
     const json = await res.json();
+    if (json?.usage) {
+      logUsage({ model: modelId, usage: json.usage }).catch(() => {});
+    }
     const text = json?.content?.[0]?.text?.trim() || "";
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) {
