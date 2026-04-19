@@ -547,6 +547,17 @@ async function loadRules() {
   $("channelBlocklist").value = (settings.channelBlocklist || []).join("\n");
   $("toggleX").checked = settings.domainToggles?.["x.com"] !== false;
   $("toggleLinkedIn").checked = settings.domainToggles?.["linkedin.com"] !== false;
+  $("classifierModel").value = settings.classifierModel || DEFAULT_MODEL;
+  $("monthlyBudget").value = settings.monthlyBudgetUsd ?? 5;
+  updateLatencyWarning();
+}
+
+function updateLatencyWarning() {
+  const sel = $("classifierModel");
+  const warn = $("modelLatencyWarn");
+  if (!sel || !warn) return;
+  const speed = MODELS[sel.value]?.speed || "fastest";
+  warn.classList.toggle("hidden", speed === "fastest");
 }
 
 async function saveRules() {
@@ -562,11 +573,15 @@ async function saveRules() {
       blocklist: linesToArray($("blocklist").value),
       channelWhitelist: linesToArray($("channelWhitelist").value),
       channelBlocklist: linesToArray($("channelBlocklist").value),
-      domainToggles: toggles
+      domainToggles: toggles,
+      classifierModel: $("classifierModel").value,
+      monthlyBudgetUsd: parseFloat($("monthlyBudget").value) || 0,
     }
   });
   $("saveStatus").textContent = "Saved ✓";
   setTimeout(() => ($("saveStatus").textContent = ""), 2500);
+  renderCostCard().catch(() => {});
+  renderModelCostTable().catch(() => {});
 }
 
 // Onboarding
@@ -619,6 +634,7 @@ $("sessionEndBtn").addEventListener("click", async () => {
 });
 
 $("save").addEventListener("click", saveRules);
+$("classifierModel")?.addEventListener("change", updateLatencyWarning);
 $("clearLog").addEventListener("click", async () => {
   if (!confirm("Clear the entire decision log?")) return;
   await send("clear_log");

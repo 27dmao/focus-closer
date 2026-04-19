@@ -233,6 +233,27 @@
   </div>
 
   <div class="card">
+    <div class="card-header"><h3>Classifier model</h3></div>
+    <select id="classifierModel">
+      <option value="claude-haiku-4-5-20251001">Haiku 4.5 — fastest, cheapest (recommended)</option>
+      <option value="claude-sonnet-4-6">Sonnet 4.6 — medium speed, higher quality</option>
+      <option value="claude-opus-4-6">Opus 4.6 — slowest, highest quality</option>
+      <option value="claude-opus-4-7">Opus 4.7 — slowest, highest quality</option>
+    </select>
+    <div id="modelLatencyWarn" class="help warn hidden">
+      ⚠ Slower models may close the tab after you've already started scrolling.
+      Haiku runs in ~500ms; Sonnet ~1–2s; Opus ~3–5s.
+    </div>
+    <div class="help">The weekly AI Insights always uses Haiku regardless of this setting.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h3>Monthly budget</h3></div>
+    <label class="inline-label">$ <input id="monthlyBudget" type="number" step="0.50" min="0" style="width:100px;" /></label>
+    <div class="help">Used for the donut chart on the dashboard. Not enforced — real limits live in your Anthropic console.</div>
+  </div>
+
+  <div class="card">
     <div class="card-header"><h3>Music rule</h3></div>
     <select id="musicRule">
       <option value="instrumental_only">Instrumental / lofi / focus music only = productive</option>
