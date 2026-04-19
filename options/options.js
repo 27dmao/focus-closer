@@ -688,6 +688,12 @@ $("sessionEndBtn").addEventListener("click", async () => {
 
 $("save").addEventListener("click", saveRules);
 $("classifierModel")?.addEventListener("change", updateLatencyWarning);
+$("monthlyBudget")?.addEventListener("keydown", async (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  await saveRules();
+  document.querySelector('.tab[data-tab="dashboard"]')?.click();
+});
 $("clearLog").addEventListener("click", async () => {
   if (!confirm("Clear the entire decision log?")) return;
   await send("clear_log");
