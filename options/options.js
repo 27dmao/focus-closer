@@ -151,7 +151,6 @@ document.querySelectorAll(".tab").forEach((tab) => {
     document.querySelector(`.panel[data-panel="${tab.dataset.tab}"]`).classList.remove("hidden");
     if (tab.dataset.tab === "dashboard") refreshDashboard();
     if (tab.dataset.tab === "log") refreshLog();
-    if (tab.dataset.tab === "insights") refreshInsights();
     if (tab.dataset.tab === "sessions") refreshStatusBar();
   });
 });
@@ -174,46 +173,37 @@ async function refreshStatusBar() {
   }
 }
 
-function renderSuggestions(suggestions) {
-  const card = $("suggestionsCard");
-  const host = $("suggestions");
-  host.innerHTML = "";
-  const shown = (suggestions || []).filter((s) => s.kind !== "info");
-  if (shown.length === 0) {
-    card.classList.add("hidden");
+function renderPolicy(policy, feedbackCounts) {
+  const meta = $("policyMeta");
+  const summary = $("policySummary");
+  const rulesEl = $("policyRules");
+  rulesEl.innerHTML = "";
+  summary.textContent = "";
+
+  const flags = feedbackCounts?.flags || 0;
+  const allows = feedbackCounts?.allows || 0;
+  const total = flags + allows;
+  const unreflected = feedbackCounts?.unreflected || 0;
+
+  if (!policy || !Array.isArray(policy.rules) || policy.rules.length === 0) {
+    if (total === 0) {
+      meta.textContent = "No feedback yet — use ⌘+Shift+X / ⌘+Shift+S on a few videos and the system will learn your taste.";
+    } else if (total < 4) {
+      meta.textContent = `${total} pieces of feedback so far — ${4 - total} more and the system will distill your first policy automatically.`;
+    } else {
+      meta.textContent = `${total} pieces of feedback ready to distill — click "Re-distill" below to generate your first policy.`;
+    }
     return;
   }
-  card.classList.remove("hidden");
-  for (const s of shown) {
-    const item = document.createElement("div");
-    item.className = "suggestion";
-    const title = document.createElement("div");
-    title.className = "suggestion-title";
-    title.textContent = s.title;
-    const body = document.createElement("div");
-    body.className = "suggestion-body";
-    body.textContent = s.body;
-    item.appendChild(title);
-    item.appendChild(body);
-    if (s.action) {
-      const actions = document.createElement("div");
-      actions.className = "suggestion-actions";
-      const apply = document.createElement("button");
-      apply.className = "btn-tiny";
-      apply.textContent = "Apply";
-      apply.addEventListener("click", async () => {
-        await send("apply_suggestion", { action: s.action });
-        refreshDashboard();
-      });
-      const dismiss = document.createElement("button");
-      dismiss.className = "btn-tiny ghost";
-      dismiss.textContent = "Dismiss";
-      dismiss.addEventListener("click", () => item.remove());
-      actions.appendChild(apply);
-      actions.appendChild(dismiss);
-      item.appendChild(actions);
-    }
-    host.appendChild(item);
+
+  const ago = formatRelativeTime(policy.updatedAt || policy.generatedAt);
+  meta.textContent = `Distilled from ${policy.feedbackCount || total} feedback signals · updated ${ago}${unreflected > 0 ? ` · ${unreflected} new since` : ""}`;
+
+  if (policy.summary) summary.textContent = policy.summary;
+  for (const rule of policy.rules) {
+    const li = document.createElement("li");
+    li.textContent = rule;
+    rulesEl.appendChild(li);
   }
 }
 
@@ -281,6 +271,7 @@ async function refreshDashboard() {
   const chart = $("chart7d");
   chart.innerHTML = "";
   const maxCount = Math.max(1, ...stats.perDayLast7.map((d) => d.closed));
+  const MAX_BAR_PX = 90;
   for (let i = 0; i < stats.perDayLast7.length; i++) {
     const day = stats.perDayLast7[i];
     const col = document.createElement("div");
@@ -290,7 +281,7 @@ async function refreshDashboard() {
     count.textContent = day.closed || "";
     const bar = document.createElement("div");
     bar.className = "bar";
-    bar.style.height = `${(day.closed / maxCount) * 100}%`;
+    bar.style.height = `${(day.closed / maxCount) * MAX_BAR_PX}px`;
     bar.title = `${day.closed} tabs, ${formatDuration(day.secondsSaved)} saved`;
     const label = document.createElement("div");
     label.className = "bar-label";
@@ -301,7 +292,7 @@ async function refreshDashboard() {
     chart.appendChild(col);
   }
 
-  renderSuggestions(data.suggestions);
+  renderPolicy(data.policy, data.feedbackCounts);
   renderHeatmap(data.heatmap);
 
   const bd = $("sourceBreakdown");
@@ -367,6 +358,26 @@ async function refreshDashboard() {
   renderModelCostTable().catch(() => {});
 }
 
+function describeRefuteAction(action, entry) {
+  if (action === "video_whitelisted") return `whitelisted "${entry.title || "video"}"${entry.channel ? ` and channel "${entry.channel}"` : ""}`;
+  if (action === "video_blocked") return `blocked "${entry.title || "video"}"${entry.channel ? ` and channel "${entry.channel}"` : ""}`;
+  if (action === "domain_unblocked") return `permanently unblocked "${entry.matchedEntry || entry.hostname}"`;
+  return "applied";
+}
+
+function showLogToast(text) {
+  const host = $("logToast");
+  if (!host) return;
+  host.textContent = text;
+  host.classList.remove("hidden");
+  host.classList.add("visible");
+  clearTimeout(showLogToast._t);
+  showLogToast._t = setTimeout(() => {
+    host.classList.remove("visible");
+    setTimeout(() => host.classList.add("hidden"), 200);
+  }, 3500);
+}
+
 async function refreshLog() {
   const logResp = await send("get_log");
   const log = logResp?.log || [];
@@ -400,6 +411,8 @@ function renderLog() {
   }
   for (const e of filtered.slice(0, 500)) {
     const tr = document.createElement("tr");
+    const isRefuted = !!e.refutedAt;
+    if (isRefuted) tr.classList.add("refuted");
     const isClose = e.verdict === "unproductive" || e.kind === "blocklist" || e.kind === "user_flag";
     const pillCls = e.kind === "user_flag" ? "pill-flag" : (isClose ? "pill-close" : "pill-keep");
     const pillText = e.kind === "user_flag" ? "FLAG" : (isClose ? "CLOSE" : "KEEP");
@@ -410,7 +423,7 @@ function renderLog() {
     tr.innerHTML = `
       <td>${new Date(e.at).toLocaleString()}</td>
       <td>${e.kind || ""}</td>
-      <td><span class="pill ${pillCls}">${pillText}</span></td>
+      <td><span class="pill ${pillCls}">${pillText}</span>${isRefuted ? ' <span class="pill pill-refuted" title="You refuted this decision">REFUTED</span>' : ""}</td>
       <td class="log-target"></td>
       <td></td>
       <td>${e.source || ""}</td>
@@ -422,7 +435,7 @@ function renderLog() {
     const canRefute = (e.kind === "youtube" && e.videoId) ||
                       (e.kind === "user_flag" && e.videoId) ||
                       (e.kind === "blocklist" && e.matchedEntry);
-    if (canRefute) {
+    if (canRefute && !isRefuted) {
       const refuteBtn = document.createElement("button");
       refuteBtn.className = "refute";
       refuteBtn.textContent = "Refute";
@@ -433,10 +446,21 @@ function renderLog() {
         const verb = isClose ? "whitelist" : "block";
         if (!confirm(`Refute this decision? Focus Closer will ${verb} this ${e.kind === "blocklist" ? "domain" : "video/channel"} going forward.`)) return;
         const res = await send("refute_log_entry", { at: e.at });
-        if (res?.ok) refreshLog();
-        else alert("Couldn't refute this entry.");
+        if (res?.ok) {
+          showLogToast(`Refuted ✓  ${describeRefuteAction(res.action, e)}`);
+          refreshLog();
+        } else {
+          alert("Couldn't refute this entry.");
+        }
       });
       actions.appendChild(refuteBtn);
+    } else if (isRefuted) {
+      const done = document.createElement("button");
+      done.className = "refuted-done";
+      done.textContent = "Refuted ✓";
+      done.disabled = true;
+      done.title = `${describeRefuteAction(e.refuteAction, e)} · ${formatRelativeTime(e.refutedAt)}`;
+      actions.appendChild(done);
     }
     const removeBtn = document.createElement("button");
     removeBtn.className = "remove";
@@ -450,91 +474,6 @@ function renderLog() {
     actions.appendChild(removeBtn);
     body.appendChild(tr);
   }
-}
-
-function renderInsights(insights) {
-  const el = $("insightsContent");
-  const meta = $("insightsMeta");
-  el.innerHTML = "";
-  if (insights?.error) {
-    const err = document.createElement("div");
-    err.className = "error";
-    err.textContent = insights.reason || insights.error;
-    el.appendChild(err);
-    meta.textContent = "";
-    return;
-  }
-  if (!insights?.text) {
-    const empty = document.createElement("div");
-    empty.className = "empty";
-    empty.textContent = 'No insights yet — click "Generate fresh insights."';
-    el.appendChild(empty);
-    meta.textContent = "";
-    return;
-  }
-
-  // Parse Claude's structured response into (label, body) sections.
-  // Use textContent for all user-visible strings to avoid any HTML injection risk.
-  const SECTIONS = [
-    [/^PATTERN OBSERVED:\s*/im, "Pattern observed"],
-    [/^BIGGEST ATTENTION LEAK:\s*/im, "Biggest attention leak"],
-    [/^ONE THING TO TRY:\s*/im, "One thing to try"]
-  ];
-
-  const text = insights.text;
-  // Locate each section in the text.
-  const hits = [];
-  for (const [re, label] of SECTIONS) {
-    const m = text.match(re);
-    if (m) hits.push({ idx: m.index, len: m[0].length, label });
-  }
-  hits.sort((a, b) => a.idx - b.idx);
-
-  if (hits.length === 0) {
-    const p = document.createElement("p");
-    p.textContent = text;
-    el.appendChild(p);
-  } else {
-    for (let i = 0; i < hits.length; i++) {
-      const h = hits[i];
-      const bodyStart = h.idx + h.len;
-      const bodyEnd = i + 1 < hits.length ? hits[i + 1].idx : text.length;
-      const body = text.slice(bodyStart, bodyEnd).trim();
-      const labelEl = document.createElement("span");
-      labelEl.className = "section-label";
-      labelEl.textContent = h.label;
-      el.appendChild(labelEl);
-      const p = document.createElement("p");
-      p.textContent = body;
-      p.style.marginBottom = "4px";
-      el.appendChild(p);
-    }
-  }
-
-  meta.textContent = `Generated ${formatRelativeTime(insights.generatedAt)}`;
-}
-
-async function refreshInsights() {
-  const el = $("insightsContent");
-  el.innerHTML = `<div class="empty">Loading cached insights...</div>`;
-  const data = await send("get_dashboard");
-  if (data.insights) {
-    renderInsights(data.insights);
-  } else {
-    el.innerHTML = `<div class="empty">No insights generated yet. Click "Generate fresh insights" below — costs about $0.001.</div>`;
-  }
-}
-
-async function generateInsights() {
-  const el = $("insightsContent");
-  const btn = $("insightsGenerate");
-  btn.disabled = true;
-  btn.textContent = "Generating...";
-  el.innerHTML = `<div class="empty">Asking Claude...</div>`;
-  const res = await send("get_insights", { force: true });
-  renderInsights(res.insights);
-  btn.disabled = false;
-  btn.textContent = "Generate fresh insights";
 }
 
 async function loadRules() {
@@ -607,10 +546,57 @@ $("onboardSkip1").addEventListener("click", async () => { await finishOnboarding
 $("onboardDone").addEventListener("click", async () => {
   const key = $("onboardApiKey").value.trim();
   const strict = document.querySelector('input[name="strict"]:checked').value;
+  const briefText = ($("onboardBrief").value || "").trim();
   const partial = { strictLevel: strict };
   if (key) partial.apiKey = key;
+  // Save settings + close onboarding immediately so the user isn't waiting.
   await finishOnboarding(partial);
+  // Then fire the brief application in the background if they wrote one.
+  if (briefText && key) {
+    const res = await send("apply_brief", { text: briefText });
+    if (res?.ok) {
+      const s = res.summary;
+      const parts = [];
+      if (s.domainsAdded.length) parts.push(`blocked ${s.domainsAdded.length} domain${s.domainsAdded.length === 1 ? "" : "s"}`);
+      if (s.channelsAdded.length) parts.push(`${s.channelsAdded.length} channel${s.channelsAdded.length === 1 ? "" : "s"}`);
+      if (s.rulesAdded) parts.push(`${s.rulesAdded} policy rule${s.rulesAdded === 1 ? "" : "s"}`);
+      if (parts.length) alert(`Trained from your description: ${parts.join(", ")}.`);
+      loadRules();
+      refreshDashboard();
+    }
+  }
 });
+
+async function applyBrief() {
+  const btn = $("briefApplyBtn");
+  const status = $("briefStatus");
+  const text = ($("briefText").value || "").trim();
+  if (!text) { status.textContent = "Write a description first."; status.style.color = "var(--unproductive)"; return; }
+  btn.disabled = true;
+  btn.textContent = "Training…";
+  status.textContent = "";
+  const res = await send("apply_brief", { text });
+  btn.disabled = false;
+  btn.textContent = "Train";
+  if (!res?.ok) {
+    status.textContent = res?.reason || "Failed to apply.";
+    status.style.color = "var(--unproductive)";
+    return;
+  }
+  const s = res.summary;
+  const parts = [];
+  if (s.domainsAdded.length) parts.push(`+${s.domainsAdded.length} domain${s.domainsAdded.length === 1 ? "" : "s"}`);
+  if (s.channelsAdded.length) parts.push(`+${s.channelsAdded.length} channel${s.channelsAdded.length === 1 ? "" : "s"}`);
+  if (s.rulesAdded) parts.push(`+${s.rulesAdded} rule${s.rulesAdded === 1 ? "" : "s"}`);
+  if (s.domainsRejected.length) parts.push(`(${s.domainsRejected.length} skipped — work-protected)`);
+  status.textContent = parts.length ? `${parts.join(" · ")} ✓` : "No new rules — already covered.";
+  status.style.color = "";
+  $("briefText").value = "";
+  setTimeout(() => (status.textContent = ""), 4000);
+  loadRules();
+  refreshDashboard();
+}
+$("briefApplyBtn").addEventListener("click", applyBrief);
 
 // Sessions
 $("sessionStartBtn").addEventListener("click", async () => {
@@ -657,7 +643,30 @@ $("replayOnboarding").addEventListener("click", async () => {
   await send("set_settings", { partial: { onboardingComplete: false } });
   $("onboarding").classList.remove("hidden");
 });
-$("insightsGenerate").addEventListener("click", generateInsights);
+$("reflectBtn").addEventListener("click", async () => {
+  const btn = $("reflectBtn");
+  const status = $("reflectStatus");
+  btn.disabled = true;
+  btn.textContent = "Distilling…";
+  status.textContent = "";
+  const res = await send("run_reflection");
+  btn.disabled = false;
+  btn.textContent = "Re-distill from feedback";
+  if (res?.policy?.error) {
+    status.textContent = res.policy.reason || res.policy.error;
+    status.style.color = "var(--unproductive)";
+  } else {
+    status.textContent = "Updated ✓";
+    status.style.color = "";
+    setTimeout(() => (status.textContent = ""), 2500);
+  }
+  refreshDashboard();
+});
+$("clearPolicyBtn").addEventListener("click", async () => {
+  if (!confirm("Clear the learned policy? Feedback history is preserved — you can re-distill anytime.")) return;
+  await send("clear_personal_policy");
+  refreshDashboard();
+});
 ["logSearch", "logVerdict", "logKind"].forEach((id) => {
   $(id).addEventListener("input", renderLog);
   $(id).addEventListener("change", renderLog);

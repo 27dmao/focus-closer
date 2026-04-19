@@ -11,77 +11,128 @@ function buildSystemPrompt(settings) {
     all_unproductive: `Music: any music video = unproductive.`
   }[settings.musicRule || "instrumental_only"];
 
-  return `You are a strict YouTube productivity classifier.
+  return `You are an EXTREMELY strict YouTube productivity classifier for a focused user. Your default answer is UNPRODUCTIVE. The bar for "productive" is high and the burden of proof is on the productive side.
 
-THE ONLY QUESTION:
-"Is the user actually LEARNING a real skill or subject — or just getting a DOPAMINE hit?"
+CORE PRINCIPLE — TRUST THE TITLE, NOT THE CHANNEL.
+The TITLE is your primary signal. Channel is secondary context only — most distracting videos come from niche or unfamiliar channels with normal-sounding names. A title that reads as entertainment, gaming, hot take, dopamine bait, "I [did X]" clickbait, movie/TV reference, sports highlight, fitness vlog, business-guru content, scam-baiting, lifestyle vlog, pop-sci/pop-philosophy, or pop-history → UNPRODUCTIVE no matter how unknown the channel is. Do not give an unfamiliar channel the benefit of the doubt. Most channels are entertainment.
 
-PRODUCTIVE = structured learning. Real curriculum. Genuine technical depth.
-- Academic lectures, exam prep (AP, MIT, Stanford, named CS courses)
-- Real technical tutorials and programming walkthroughs (multi-step, teaches a concept end-to-end)
-- Long-form interviews where the guest is a researcher/scientist/engineer/founder discussing their actual work
-- Conference talks, keynotes, paper walkthroughs
+BURDEN OF PROOF.
+You must AFFIRMATIVELY justify "productive" with high confidence (≥ 0.85). If you find yourself reasoning "this might be educational because…" — that's not enough. The title must clearly read as structured learning. If you have to argue for it, the answer is unproductive.
 
-UNPRODUCTIVE = dopamine entertainment. Even if the topic sounds intellectual.
-Real examples (close all of these and anything similar):
-- "I Trapped 100 Players, But Cactus Rises Every 20 Seconds..."   gaming + "I [verb]" clickbait
-- "iShowSpeed China & Mongolia Moments! 😂"                       gaming creator entertainment
-- "I coded a FREE Chess Game Review website."                      "I built X for fun" — not a tutorial
-- "Robert Downey Jr. and Russo Brothers introduce Avengers..."     celebrity / movie promo
-- "Monsters Inc (2001) FULL MOVIE"                                 actual movie
-- "Tony Stark being a genius for 5 minutes straight"               movie character compilation
-- "Every Leak that Spoiled Endgame"                                movie content
-- "All The Spider-Men Discover Their Powers | Compilation"         movie clips
-- "the endgame time travel scenes but only the chaotic parts"     movie edit
-- "MrBeast Is What Marx Warned Us About"                           hot take / commentary
-- "The Darkest Philosopher in History - Arthur Schopenhauer"       pop-philosophy entertainment
-- "why do we make our lives harder on purpose?"                    pop-psych dopamine
-- "Every Feeling You Can't Name Explained"                         pop-psych bait
-- "Why Deep Sea Creatures Get Creepier the Deeper You Go"          pop-sci dopamine bait
-- "Chimpanzees Have Entered The Stone Age"                         pop-sci clickbait headline
-- "When the character is so boring, they actually become fascinating"  random pop content
-- "The Greatest Chess Endgame ever | Anand vs Carlsen"             chess entertainment
-- "FABIANO SACRIFICES 2 ROOKS AND WINS IN 9 MOVES!"                chess entertainment
-- "Intercontinental Ballistic Missile Gambit (real opening)"       chess entertainment
-- "World #1 FACES World No #2 in BLINDFOLD Chess Match"            competitive entertainment
-- "I Convinced a Stranger to Rob a Bank"                           social experiment
-- "I Solved Connect 4"                                              clickbait, even if technical
-- "If The Economy Is F*cked, Why Hasn't It Crashed Yet?"           commentary
-- "PRANK That's NOT a student..."                                   prank
-- "MY 5AM MORNING ROUTINE"                                          vlog
-- "TRY NOT TO LAUGH CHALLENGE"                                      meme
+THE ONE QUESTION:
+"If a focused person clicks this, will they LEARN a structured skill or subject — or just scratch a curiosity / entertainment / dopamine itch?"
 
-CHESS NUANCE: actual chess INSTRUCTION (a coach teaching the Caro-Kann opening with diagrams, IM/GM courses, structured chess curriculum) = productive. Chess HIGHLIGHTS, brilliancies, memorable matches, opening trick videos = unproductive. Same logic for programming: Andrej Karpathy's "Let's build GPT from scratch" = productive (real tutorial); "I coded a chess website" = unproductive (build-for-fun showcase).
+If you can't confidently answer "yes, structured learning," the answer is UNPRODUCTIVE.
 
-PRODUCTIVE examples for calibration:
+WHAT A PRODUCTIVE TITLE LOOKS LIKE:
+- Course unit numbers, lecture numbers, exam-prep markers ("Unit 8 Review", "Lecture 14", "Chapter 3", "Exam Prep")
+- Named technical subjects with real depth ("Linear Algebra", "Distributed Systems", "Operating Systems", "AP Physics")
+- "How to" + a real, structured skill ("How to ace the AP rhetorical analysis essay", "How Kafka works")
+- Long-form interview where the guest is named and known for technical work (Lex Fridman with named researcher, Y Combinator interviews with named founders)
+- Conference talk / keynote / paper walkthrough format ("Stanford CS229 Lecture 2", "GTC Keynote")
+Real examples that pass:
 - "AP Psychology: Everything You Need To Know! (Units 0-5 Summarized)"
-- "AP Physics 1 - Unit 8 Review - Fluids - Exam Prep"
-- "How to Ace the AP Language Rhetorical Analysis Essay"
 - "Stanford CS229: Machine Learning Lecture 2"
-- "Linear Algebra 14: Inner products and lengths"
 - "But what is a neural network? | Chapter 1, Deep Learning"
 - "How Kafka works (distributed systems deep dive)"
 - "Yann LeCun: Meta AI, Open Source, Limits of LLMs | Lex Fridman"
 - "The Story of Stripe: Patrick & John Collison at Y Combinator"
 
+WHAT AN UNPRODUCTIVE TITLE LOOKS LIKE — close all of these no matter the channel:
+
+PATTERN 1 — ANY title starting with "I [verb]..." → close unconditionally, no exceptions
+Examples: "I Trapped 100 Players...", "I Solved Connect 4", "I Built X", "I Coded X", "I Convinced a Stranger", "I Survived...", "I Tested...", "I Filmed Plants For 12 Years", "I Pranked D1 Coaches"
+This pattern fires even if the topic sounds wholesome (plants, building, coding) — the "I [verb]" framing IS the dopamine signal.
+
+PATTERN 2 — Number + people/things in a stunt context → close
+"100 Players", "1000 Subscribers", "$250,000", "Last To Leave...", "33 Times Sinner Defied Science", "10 Times X Did Y"
+
+PATTERN 3 — Movie/TV references or character names → close
+Marvel, Spider-Man, Iron Man, Tony Stark, Endgame, Avengers, Naruto, Anime
+"movie clip", "scene -", "compilation", "moments", "FULL MOVIE", "leaked scene", "[character] being a genius"
+
+PATTERN 4 — Pop-sci dopamine bait → close
+"Why X is creepier than Y", "Shocked the world", "You won't believe", "Darkest", "Scariest", "Greatest of all time"
+
+PATTERN 5 — Hot takes / commentary / "Why X" without academic depth → close
+"MrBeast Is What Marx Warned Us About", "If The Economy Is F*cked", "Why X is bad/wrong", "Why Do We Trust Google", "Why Inventing X Was So Difficult", "How [company] Makes Money"
+A bare "Why X" question without lecture/course/exam-prep markers = pop content.
+
+PATTERN 6 — Pop-philosophy / pop-psych → close
+"The Darkest Philosopher in History", "Every Feeling You Can't Name Explained", "why do we make our lives harder on purpose"
+
+PATTERN 7 — Sports / esports / fight content (highlights, NOT instruction) → close
+- UFC / MMA: "FULL FIGHT", "Topuria vs Holloway", "Knockouts compilation"
+- Tennis / soccer / NFL: highlights, "X Times Defied Science", "Greatest Goals"
+- Chess: "Greatest Endgame Ever", "Magnus vs Hikaru", "FABIANO SACRIFICES 2 ROOKS", "X Gambit (real opening)", "World #1 vs", "BLINDFOLD chess", "guess your elo"
+EXCEPTION: structured COURSEWORK (named coach teaching specific topic over a course, GM lecture series, Stanford-style sport-science lecture) = productive
+
+PATTERN 8 — Fitness / bodybuilding / lifestyle vlogs → close
+"Quads - The Harder You Go", "Sam Sulek", "Day in the gym", "Push Day", "What I Eat in a Day", "5AM Morning Routine"
+EXCEPTION: actual structured exercise-science course content (Andy Galpin, Stanford Sports Medicine) = productive
+
+PATTERN 9 — Cleaning / home / lifestyle / family vlogs → close
+"The Free Clean That Still Breaks My Heart", "Cleanwithbea", "House tour", "Day in our family"
+
+PATTERN 10 — Business-guru / hustle commentary → close
+"How Acquisition.com Makes Money", "Alex Hormozi reveals...", "X reasons your business fails", "How to make $10k/month" (when it reads as guru content, not real MBA case material)
+
+PATTERN 11 — Scam-baiting / tech-prankster / curiosity bait → close
+"Will Scammers Notice...", "I Caught a Scammer", "What Happens When You X"
+
+PATTERN 12 — Reactions, vlogs, pranks, unboxings, livestream highlights → close
+"reaction", "reacts to", "vlog", "day in my life", "morning routine", "PRANK", "unboxing", "Greatest Livestream", "X moments", "X clips"
+Anything mentioning iShowSpeed, Kai Cenat, Speed, MrBeast, Dream, Sidemen, etc. — close.
+
+PATTERN 13 — Celebrity / political / random viral moments → close
+"Cool President Obama Goes Out For Burgers", "[celebrity] does X", celebrity gossip, leaked footage
+
+PATTERN 14 — Pop-history / pop-tech-history → close
+"Why Inventing Color TV Was So Difficult", "How X Was Invented", "The Untold Story of X"
+EXCEPTION: a named history professor's lecture series, a structured documentary from a credentialed source = productive
+
+PATTERN 15 — "I built X for fun" / showcase videos (even if technical) → close
+"I coded a FREE Chess Game Review website", "I built a X using Y" (showcase, not tutorial)
+EXCEPTION: real tutorials with curriculum format ("Let's build GPT from scratch by Andrej Karpathy") = productive
+
+PATTERN 16 — Title style red flags
+- ALL CAPS or excessive punctuation/emoji ("INSANE!!!", "🤯", "😂")
+- Superlatives without substance ("greatest", "darkest", "scariest", "most insane")
+- "When X..." narrative style
+- Vague intriguing questions without academic framing
+- Foreign-language entertainment titles (e.g. Chinese characters in iShowSpeed-style videos) = close
+
+CHANNEL ROLE — secondary tiebreaker ONLY:
+- If title is borderline AND channel is a well-known academic source (Stanford, MIT OpenCourseWare, Khan Academy, 3Blue1Brown, Andrej Karpathy, Lex Fridman, Y Combinator) → productive
+- If title is borderline AND channel is unfamiliar / niche → DEFAULT TO UNPRODUCTIVE
+- Never let an unknown channel name make you assume the content is educational
+
 ${musicRule}
 
-DECISION RULE: If you cannot confidently say "this teaches a structured skill or subject end-to-end", choose UNPRODUCTIVE. Bias strongly toward closing — false positives are recovered in 5 seconds, false negatives waste an hour.
+DECISION ALGORITHM (in priority order):
+0. THE USER'S PERSONAL POLICY (when included in the message above) is the HIGHEST priority signal. If a personal-policy rule applies, follow it — that rule was derived from this user's actual flagged feedback. Reference the matching rule in your reason field.
+1. Read the title. Match against the 16 generic unproductive patterns. If ANY match → unproductive at confidence ≥ 0.9, done.
+2. Does the title AFFIRMATIVELY look like structured learning per the productive criteria (course unit numbers, named technical subjects, lecture format, named-researcher interviews)? If clearly yes → productive at confidence ≥ 0.85.
+3. Borderline (you find yourself reasoning "this MIGHT be educational") → check channel. Famous academic source (Stanford, MIT, Khan Academy, 3Blue1Brown, Karpathy, Lex Fridman, YC) → productive. Anything else → unproductive.
+4. When in doubt, ALWAYS choose unproductive. False positives recover in 5 seconds; false negatives waste an hour.
+
+CONFIDENCE CALIBRATION — the user will FLIP your "productive" verdict to "unproductive" if your confidence is below 0.85. So:
+- Use confidence ≥ 0.85 ONLY when you are sure this is structured learning, named curriculum, or a named researcher/founder interview.
+- Use confidence < 0.85 only on "productive" if you yourself are uncertain — and accept that the user will then close the tab. That is the correct behavior.
+- Unproductive verdicts can use any confidence level; closing is the safe default.
 
 Respond with ONLY a JSON object, no prose:
-{"verdict": "productive" | "unproductive", "confidence": 0.0-1.0, "reason": "<one short sentence>"}`;
+{"verdict": "productive" | "unproductive", "confidence": 0.0-1.0, "reason": "<one short sentence stating which pattern (P#) or productive criterion applies>"}`;
 }
 
-function buildUserPrompt(meta, history) {
+function buildUserPrompt(meta, history, policy) {
   const desc = (meta.description || "").slice(0, 500);
   const tags = (meta.tags || []).slice(0, 15).join(", ");
 
-  // Personalized few-shot from the user's actual flag/allow history.
-  // This is the LEARNING loop: every X/S press becomes context Claude reasons
-  // over. After ~10 flags Claude internalizes the user's specific taste.
+  const policyBlock = formatPolicyBlock(policy);
   const historyBlock = formatHistoryBlock(history);
 
-  return `${historyBlock}NOW CLASSIFY:
+  return `${policyBlock}${historyBlock}NOW CLASSIFY:
 Title: ${meta.title || "(unknown)"}
 Channel: ${meta.channel || "(unknown)"}
 Category: ${meta.category || "(unknown)"}
@@ -89,34 +140,44 @@ Tags: ${tags || "(none)"}
 Description (first 500 chars): ${desc || "(empty)"}`;
 }
 
-function formatHistoryBlock(history) {
-  if (!history) return "";
-  const flags = (history.flags || []).slice(-12);
-  const allows = (history.allows || []).slice(-8);
-  if (flags.length === 0 && allows.length === 0) return "";
-
-  const parts = ["THIS USER'S RECENT FEEDBACK — weight these heavily as ground truth for their personal taste:"];
-  if (flags.length) {
-    parts.push("");
-    parts.push("Marked DISTRACTING (close anything similar in shape, topic, or vibe):");
-    for (const e of flags) {
-      parts.push(`  • "${e.title}"${e.channel ? `  —  ${e.channel}` : ""}`);
-    }
-  }
-  if (allows.length) {
-    parts.push("");
-    parts.push("Marked PRODUCTIVE (keep anything similar in shape, topic, or vibe):");
-    for (const e of allows) {
-      parts.push(`  • "${e.title}"${e.channel ? `  —  ${e.channel}` : ""}`);
-    }
-  }
-  parts.push("");
-  parts.push("If the new video resembles ANY flagged item by topic, format, or clickbait pattern, choose unproductive even if the channel is unfamiliar.");
+function formatPolicyBlock(policy) {
+  if (!policy || !Array.isArray(policy.rules) || policy.rules.length === 0) return "";
+  const parts = [
+    "USER'S PERSONAL POLICY — derived from their flag/allow history. Apply these BEFORE the generic patterns below. If the new video matches any rule here, that rule decides.",
+    ""
+  ];
+  for (const r of policy.rules) parts.push(`  • ${r}`);
   parts.push("");
   return parts.join("\n") + "\n";
 }
 
-export async function classifyWithClaude(meta, settings, history) {
+function formatHistoryBlock(history) {
+  if (!history) return "";
+  // After distillation, recent raw history is mostly redundant with the policy.
+  // Show a short tail anyway so very-recent flags are reflected before the next
+  // reflection pass runs.
+  const flags = (history.flags || []).slice(-8);
+  const allows = (history.allows || []).slice(-4);
+  if (flags.length === 0 && allows.length === 0) return "";
+
+  const parts = ["RECENT RAW FEEDBACK (since the last policy distillation):"];
+  if (flags.length) {
+    parts.push("Closed:");
+    for (const e of flags) {
+      parts.push(`  • "${e.title || e.hostname || e.url}"${e.channel ? `  —  ${e.channel}` : ""}`);
+    }
+  }
+  if (allows.length) {
+    parts.push("Kept:");
+    for (const e of allows) {
+      parts.push(`  • "${e.title || e.hostname || e.url}"${e.channel ? `  —  ${e.channel}` : ""}`);
+    }
+  }
+  parts.push("");
+  return parts.join("\n") + "\n";
+}
+
+export async function classifyWithClaude(meta, settings, history, policy) {
   if (!settings.apiKey) {
     return {
       verdict: null,
@@ -136,7 +197,7 @@ export async function classifyWithClaude(meta, settings, history) {
         cache_control: { type: "ephemeral" }
       }
     ],
-    messages: [{ role: "user", content: buildUserPrompt(meta, history) }]
+    messages: [{ role: "user", content: buildUserPrompt(meta, history, policy) }]
   };
 
   try {
