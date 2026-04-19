@@ -1004,14 +1004,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const existing = await getPersonalPolicy();
         const existingRules = existing?.rules || [];
         const merged = [...existingRules];
+
+        // Dedup by normalized prefix so repeated brief applications don't
+        // accumulate near-duplicates ("close UFC highlights" vs "close UFC
+        // and MMA highlights"). Without this, the policy fills with chatter
+        // and the older meaningful rules get sliced out by the 24-cap.
+        const _norm = (s) => s
+          .toLowerCase()
+          .replace(/[^a-z0-9 ]+/g, "")
+          .split(/\s+/).filter(Boolean)
+          .slice(0, 6)
+          .join(" ");
+        const seenPrefixes = new Set(merged.map(_norm));
+
         for (const r of result.policy_rules) {
           const rule = String(r || "").trim();
           if (!rule) continue;
           const norm = rule.toLowerCase();
-          if (!merged.some((e) => e.toLowerCase() === norm)) {
-            merged.push(rule);
-            summary.rulesAdded += 1;
-          }
+          const prefix = _norm(rule);
+          if (merged.some((e) => e.toLowerCase() === norm)) continue;
+          if (prefix && seenPrefixes.has(prefix)) continue;
+          merged.push(rule);
+          if (prefix) seenPrefixes.add(prefix);
+          summary.rulesAdded += 1;
         }
         await setPersonalPolicy({
           rules: merged.slice(0, 24),
