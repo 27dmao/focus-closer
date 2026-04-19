@@ -419,6 +419,18 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
+// ─── Sender validation ───────────────────────────────────────────────────────
+// Without this, any malicious webpage can call any chrome.runtime message
+// handler — including ones that mutate settings (overwrite the user's API
+// key), wipe logs, or trigger billable Claude calls. Extension-only handlers
+// must verify the sender came from one of our own pages (options page or the
+// extension's own popup), not from an arbitrary content script.
+function isExtensionOriginated(sender) {
+  if (sender?.tab) return false;
+  if (sender?.id !== chrome.runtime.id) return false;
+  return typeof sender.url === "string" && sender.url.startsWith(`chrome-extension://${chrome.runtime.id}/`);
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "yt_metadata") {
     (async () => {
@@ -503,6 +515,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "get_dashboard") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       const [stats, settings, meta, session, log, policy, history, unreflected] = await Promise.all([
         getStats(),
@@ -526,6 +539,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "run_reflection") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       const result = await maybeRunReflection({ force: true });
       const ok = !!(result && !result.error);
@@ -535,6 +549,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "clear_personal_policy") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       await clearPersonalPolicy();
       sendResponse({ ok: true });
@@ -543,6 +558,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "get_default_system_prompt") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       const settings = await getSync();
       sendResponse({ ok: true, prompt: getDefaultSystemPrompt(settings) });
@@ -551,6 +567,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "apply_brief") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       const settings = await getSync();
       if (!settings.apiKey) {
@@ -622,6 +639,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "start_session") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       const session = await startSession({
         durationMs: msg.durationMs || 25 * 60 * 1000,
@@ -635,6 +653,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "end_session") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       chrome.alarms.clear("session_end");
       const s = await endSession();
@@ -644,6 +663,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "get_log") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       const log = await getLog();
       sendResponse({ log });
@@ -652,11 +672,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "clear_log") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => { await clearLog(); sendResponse({ ok: true }); })();
     return true;
   }
 
   if (msg?.type === "remove_log_entry") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       const res = await removeLogEntry(msg.at);
       sendResponse({ ok: true, ...res });
@@ -665,6 +687,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "refute_log_entry") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       const entry = await getLogEntry(msg.at);
       if (!entry) { sendResponse({ ok: false, error: "not_found" }); return; }
@@ -720,6 +743,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "set_settings") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       await setSync(msg.partial || {});
       sendResponse({ ok: true });
@@ -728,6 +752,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "clear_video_cache") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       const items = await chrome.storage.local.get(null);
       const toRemove = Object.keys(items).filter((k) => k.startsWith("v:") || k.startsWith("v2:") || k.startsWith("v3:") || k.startsWith("v4:"));
