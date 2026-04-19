@@ -101,14 +101,9 @@ export function classifyLocally(meta, settings) {
     };
   }
 
-  if (anyMatch(title, PRODUCTIVE_TITLE_KEYWORDS)) {
-    return {
-      verdict: "productive",
-      confidence: 0.85,
-      reason: "productive keyword match in title",
-      source: "rule"
-    };
-  }
-
+  // Productive title keywords used to short-circuit to "productive" with confidence 0.85.
+  // That was too aggressive — MrBeast-style titles were somehow matching and skipping
+  // the Claude check. Now we fall through to Claude for verification, which is the right
+  // behavior for a strict-leaning user: the rule can hint, but only the LLM decides.
   return null;
 }
