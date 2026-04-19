@@ -309,6 +309,204 @@ function renderPolicy(policy, feedbackCounts) {
   }
 }
 
+// ─── Universal classification + time-tracking renderers ─────────────────────
+
+function todayKey(at = Date.now()) {
+  const d = new Date(at);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function fmtMin(ms) {
+  const m = Math.round(ms / 60000);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  return rest ? `${h}h ${rest}m` : `${h}h`;
+}
+
+function classifyHostnameForUI(hostname, domainVerdicts) {
+  if (domainVerdicts && domainVerdicts[hostname]) return domainVerdicts[hostname];
+  return "mixed"; // unknown / not yet classified
+}
+
+function renderUniversalSplit({ timeStats, domainVerdicts }) {
+  const today = (timeStats?.buckets || {})[todayKey()] || {};
+  let prodMs = 0, unprodMs = 0, mixedMs = 0;
+  for (const [host, ms] of Object.entries(today)) {
+    const v = classifyHostnameForUI(host, domainVerdicts);
+    if (v === "productive") prodMs += ms;
+    else if (v === "unproductive") unprodMs += ms;
+    else mixedMs += ms;
+  }
+  const total = prodMs + unprodMs + mixedMs;
+
+  const C = 2 * Math.PI * 50; // 314.16
+  const prodFrac = total > 0 ? prodMs / total : 0;
+  const unprodFrac = total > 0 ? unprodMs / total : 0;
+  // Productive arc starts at top (0°). Unproductive arc starts after productive.
+  const prodLen = prodFrac * C;
+  const unprodLen = unprodFrac * C;
+  const prodEl = $("universalDonutProductive");
+  const unprodEl = $("universalDonutUnproductive");
+  if (prodEl) prodEl.setAttribute("stroke-dasharray", `${prodLen.toFixed(2)} ${(C - prodLen).toFixed(2)}`);
+  if (unprodEl) {
+    // Offset so unproductive starts where productive ends.
+    unprodEl.setAttribute("stroke-dasharray", `${unprodLen.toFixed(2)} ${(C - unprodLen).toFixed(2)}`);
+    unprodEl.setAttribute("stroke-dashoffset", `${(-prodLen).toFixed(2)}`);
+  }
+  const pct = $("universalDonutPct");
+  if (pct) pct.textContent = total === 0 ? "—" : `${Math.round(prodFrac * 100)}%`;
+
+  if ($("universalProdMin")) $("universalProdMin").textContent = fmtMin(prodMs);
+  if ($("universalUnprodMin")) $("universalUnprodMin").textContent = fmtMin(unprodMs);
+  if ($("universalMixedMin")) $("universalMixedMin").textContent = fmtMin(mixedMs);
+  if ($("universalTotal")) $("universalTotal").textContent = total === 0
+    ? "No active time tracked yet today — browse a few sites and check back."
+    : `Total active time today: ${fmtMin(total)}`;
+}
+
+function renderTopDomains({ timeStats, domainVerdicts }) {
+  const list = $("topDomainsList");
+  if (!list) return;
+  const today = (timeStats?.buckets || {})[todayKey()] || {};
+  const rows = Object.entries(today)
+    .filter(([, ms]) => ms >= 1000)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+  list.innerHTML = "";
+  if (rows.length === 0) {
+    const li = document.createElement("li");
+    li.style.justifyContent = "center";
+    li.innerHTML = `<span class="host" style="color:var(--text-mute);text-align:center;grid-column:1 / -1">No tracked time today yet.</span>`;
+    list.appendChild(li);
+    return;
+  }
+  for (const [host, ms] of rows) {
+    const v = classifyHostnameForUI(host, domainVerdicts);
+    const li = document.createElement("li");
+    li.dataset.verdict = v;
+    li.innerHTML = `<span class="v-bar"></span><span class="host"></span><span class="ms"></span>`;
+    li.querySelector(".host").textContent = host;
+    li.querySelector(".ms").textContent = fmtMin(ms);
+    list.appendChild(li);
+  }
+}
+
+function renderUniversalTimeSeries({ timeStats, domainVerdicts }) {
+  const host = $("universalTimeSeries");
+  if (!host) return;
+  host.innerHTML = "";
+  const buckets = timeStats?.buckets || {};
+  // Build last 14 days, oldest → newest, missing days = 0
+  const days = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = todayKey(d.getTime());
+    const day = buckets[key] || {};
+    let prod = 0, unprod = 0, mixed = 0;
+    for (const [h, ms] of Object.entries(day)) {
+      const v = classifyHostnameForUI(h, domainVerdicts);
+      if (v === "productive") prod += ms;
+      else if (v === "unproductive") unprod += ms;
+      else mixed += ms;
+    }
+    days.push({ key, label: d.toLocaleDateString(undefined, { weekday: "short" }), prod, unprod, mixed, total: prod + unprod + mixed });
+  }
+  const max = Math.max(1, ...days.map((d) => d.total));
+  for (const d of days) {
+    const col = document.createElement("div");
+    col.className = "col";
+    const stack = document.createElement("div");
+    stack.className = "stack";
+    const heightPct = (d.total / max) * 100;
+    stack.style.height = `${heightPct}%`;
+    if (d.unprod > 0) {
+      const seg = document.createElement("div");
+      seg.className = "seg unprod";
+      seg.style.flex = String(d.unprod);
+      seg.title = `Unproductive: ${fmtMin(d.unprod)}`;
+      stack.appendChild(seg);
+    }
+    if (d.mixed > 0) {
+      const seg = document.createElement("div");
+      seg.className = "seg mixed";
+      seg.style.flex = String(d.mixed);
+      seg.title = `Mixed/Unknown: ${fmtMin(d.mixed)}`;
+      stack.appendChild(seg);
+    }
+    if (d.prod > 0) {
+      const seg = document.createElement("div");
+      seg.className = "seg prod";
+      seg.style.flex = String(d.prod);
+      seg.title = `Productive: ${fmtMin(d.prod)}`;
+      stack.appendChild(seg);
+    }
+    col.appendChild(stack);
+    const lab = document.createElement("div");
+    lab.className = "lab";
+    lab.textContent = d.label;
+    col.appendChild(lab);
+    host.appendChild(col);
+  }
+}
+
+function renderTrainingBanner(training) {
+  const banner = $("trainingBanner");
+  if (!banner) return;
+  if (training?.active && training?.endsAt) {
+    const remainingMs = training.endsAt - Date.now();
+    const hrs = Math.max(0, Math.floor(remainingMs / 3_600_000));
+    const mins = Math.max(0, Math.floor((remainingMs % 3_600_000) / 60_000));
+    const sub = $("trainingSub");
+    if (sub) sub.textContent = `Training mode ends in ~${hrs}h ${mins}m. The dot shows on every site, but tabs only auto-close from blocklist matches and YouTube classification. After training ends, unproductive verdicts close non-YouTube tabs too.`;
+    banner.classList.remove("hidden");
+  } else {
+    banner.classList.add("hidden");
+  }
+}
+
+// ─── Live activity pill (updates every second) ───────────────────────────────
+
+let _liveSnapshot = null;
+let _liveTickHandle = null;
+
+function renderLivePill() {
+  const pill = $("livePill");
+  if (!pill) return;
+  if (!_liveSnapshot || !_liveSnapshot.hostname) {
+    pill.classList.add("hidden");
+    return;
+  }
+  pill.classList.remove("hidden");
+  const verdict = _liveSnapshot.verdict || "mixed";
+  pill.dataset.verdict = verdict;
+  const elapsed = _liveSnapshot.elapsedMs + (Date.now() - _liveSnapshot.snapshotTakenAt);
+  pill.innerHTML = "";
+  const dot = document.createElement("span");
+  dot.className = "pill-dot";
+  pill.appendChild(dot);
+  const txt = document.createElement("span");
+  txt.textContent = `${_liveSnapshot.hostname} · ${fmtMin(elapsed)} active`;
+  pill.appendChild(txt);
+}
+
+function setLiveSnapshot({ snapshot, domainVerdicts }) {
+  if (!snapshot || !snapshot.hostname) {
+    _liveSnapshot = null;
+  } else {
+    _liveSnapshot = {
+      hostname: snapshot.hostname,
+      elapsedMs: snapshot.elapsedMs || 0,
+      snapshotTakenAt: Date.now(),
+      verdict: domainVerdicts?.[snapshot.hostname] || "mixed"
+    };
+  }
+  renderLivePill();
+  if (_liveTickHandle) clearInterval(_liveTickHandle);
+  if (_liveSnapshot) _liveTickHandle = setInterval(renderLivePill, 1000);
+}
+
 function renderHeatmap(grid) {
   const host = $("heatmap");
   host.innerHTML = "";
@@ -411,6 +609,11 @@ async function refreshDashboard() {
 
   renderPolicy(data.policy, data.feedbackCounts);
   renderHeatmap(data.heatmap);
+  renderTrainingBanner(data.training);
+  renderUniversalSplit({ timeStats: data.timeStats, domainVerdicts: data.domainVerdicts });
+  renderTopDomains({ timeStats: data.timeStats, domainVerdicts: data.domainVerdicts });
+  renderUniversalTimeSeries({ timeStats: data.timeStats, domainVerdicts: data.domainVerdicts });
+  setLiveSnapshot({ snapshot: data.snapshot, domainVerdicts: data.domainVerdicts });
 
   const bd = $("sourceBreakdown");
   bd.innerHTML = "";
@@ -932,6 +1135,17 @@ $("replayOnboarding").addEventListener("click", async () => {
   await send("set_settings", { partial: { onboardingComplete: false } });
   $("onboarding").classList.remove("hidden");
 });
+$("clearDomainCache")?.addEventListener("click", async () => {
+  if (!confirm("Clear the universal domain verdict cache? Sites will re-classify on next visit (small Claude cost).")) return;
+  const res = await send("clear_domain_verdict_cache");
+  alert(`Cleared ${res?.removed || 0} cached domain verdicts.`);
+  refreshDashboard();
+});
+$("resetDismissed")?.addEventListener("click", async () => {
+  if (!confirm("Reset all dismissed indicators? Every site you previously hid the dot on will show it again on next load.")) return;
+  await send("reset_dismissed_domains");
+  alert("Dismissed list cleared.");
+});
 $("reflectBtn").addEventListener("click", async () => {
   const btn = $("reflectBtn");
   const status = $("reflectStatus");
@@ -984,8 +1198,39 @@ $("costEditBudget")?.addEventListener("click", (e) => {
   }
 });
 
+$("endTrainingBtn")?.addEventListener("click", async () => {
+  if (!confirm("End training mode now? Unproductive non-YouTube sites will start auto-closing.")) return;
+  await send("end_training_mode");
+  refreshDashboard();
+});
+
+// ─── Live updates: react to storage changes (throttled, max 1Hz) ───────────
+let _refreshThrottle = null;
+function scheduleRefresh() {
+  if (_refreshThrottle) return;
+  _refreshThrottle = setTimeout(() => {
+    _refreshThrottle = null;
+    refreshDashboard();
+  }, 1000);
+}
+try {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local") return;
+    if ("domainTimeTracking" in changes ||
+        "domainTimeBuckets" in changes ||
+        "tracker:currentSession" in changes ||
+        "dismissedDomains" in changes ||
+        "trainingModeEndsAt" in changes ||
+        Object.keys(changes).some((k) => k.startsWith("dv:"))) {
+      scheduleRefresh();
+    }
+  });
+} catch {}
+
 loadRules();
 refreshStatusBar();
 refreshDashboard();
 maybeShowOnboarding();
 setInterval(refreshStatusBar, 15000);
+// Refresh dashboard every 5s so the live "today" tally updates even without storage change events.
+setInterval(refreshDashboard, 5000);
