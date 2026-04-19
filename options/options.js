@@ -100,6 +100,49 @@ async function renderCostCard() {
   $("costProjection").textContent = projText;
 }
 
+async function renderModelCostTable() {
+  const tbody = document.querySelector("#modelCostTable tbody");
+  if (!tbody) return;
+
+  const [settings, projections, stats] = await Promise.all([
+    chrome.storage.sync.get(["classifierModel"]),
+    projectPerModel(),
+    getUsageStats()
+  ]);
+  const currentId = settings.classifierModel || DEFAULT_MODEL;
+
+  if (stats.dataDays === 0) {
+    tbody.innerHTML = `<tr><td colspan="4" class="empty">Classify a few videos to see projections.</td></tr>`;
+    return;
+  }
+
+  const speedLabel = { fastest: "Fastest", medium: "Medium", slow: "Slow" };
+  tbody.innerHTML = projections.map((p) => {
+    const isCurrent = p.id === currentId;
+    const action = isCurrent
+      ? `<span class="current-badge">current</span>`
+      : `<button class="btn-switch" data-model-id="${p.id}">Switch →</button>`;
+    return `
+      <tr>
+        <td>${p.label}</td>
+        <td>$${p.cost.toFixed(2)}/mo</td>
+        <td class="speed-${p.speed}">${speedLabel[p.speed] || p.speed}</td>
+        <td>${action}</td>
+      </tr>`;
+  }).join("");
+
+  tbody.querySelectorAll(".btn-switch").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.modelId;
+      await chrome.storage.sync.set({ classifierModel: id });
+      await renderModelCostTable();
+      await renderCostCard();
+      const sel = $("classifierModel");
+      if (sel) sel.value = id;
+    });
+  });
+}
+
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
@@ -321,6 +364,7 @@ async function refreshDashboard() {
   }
 
   renderCostCard().catch(() => {});
+  renderModelCostTable().catch(() => {});
 }
 
 async function refreshLog() {
