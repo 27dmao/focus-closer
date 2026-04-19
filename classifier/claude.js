@@ -4,6 +4,56 @@ import { logUsage } from "../lib/usage.js";
 const ENDPOINT = "https://api.anthropic.com/v1/messages";
 const MAX_TOKENS = 200;
 
+// ─── Concurrency + rate limiting ─────────────────────────────────────────────
+// Without these guards, opening many YouTube tabs at once (or rapid SPA route
+// changes) fanned out into N parallel Claude calls — burning the user's
+// billable API key and tripping API rate limits. Cap concurrency and the
+// per-minute call rate; over the rate cap, return a synthetic "rate_limited"
+// result so the caller falls back to fail-open instead of queuing forever.
+const MAX_INFLIGHT = 3;
+const MAX_PER_MINUTE = 30;
+let _inflight = 0;
+const _waitQueue = [];
+const _recentCallTs = [];
+
+function _pruneRateWindow(now) {
+  const cutoff = now - 60_000;
+  while (_recentCallTs.length && _recentCallTs[0] < cutoff) _recentCallTs.shift();
+}
+
+async function _acquireSlot() {
+  const now = Date.now();
+  _pruneRateWindow(now);
+  if (_recentCallTs.length >= MAX_PER_MINUTE) return false;
+  if (_inflight < MAX_INFLIGHT) {
+    _inflight++;
+    _recentCallTs.push(now);
+    return true;
+  }
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      const i = _waitQueue.indexOf(resolveSlot);
+      if (i >= 0) _waitQueue.splice(i, 1);
+      resolve(false);
+    }, 30_000);
+    function resolveSlot() {
+      clearTimeout(timer);
+      _pruneRateWindow(Date.now());
+      if (_recentCallTs.length >= MAX_PER_MINUTE) { resolve(false); return; }
+      _inflight++;
+      _recentCallTs.push(Date.now());
+      resolve(true);
+    }
+    _waitQueue.push(resolveSlot);
+  });
+}
+
+function _releaseSlot() {
+  _inflight = Math.max(0, _inflight - 1);
+  const next = _waitQueue.shift();
+  if (next) next();
+}
+
 function buildSystemPrompt(settings) {
   // User-customizable override. If they've edited the prompt on the Rules tab,
   // use it verbatim. Otherwise generate the default tuned prompt.
@@ -195,6 +245,18 @@ export async function classifyWithClaude(meta, settings, history, policy) {
     };
   }
 
+  // Burst protection. If we're over the per-minute cap, fail open with a
+  // synthetic rate-limit error — the caller will keep the tab open rather
+  // than queuing forever.
+  const got = await _acquireSlot();
+  if (!got) {
+    return {
+      verdict: null,
+      error: "rate_limited",
+      reason: "Skipped — too many Claude calls in the last minute (try again shortly)"
+    };
+  }
+
   const modelId = settings.classifierModel || DEFAULT_MODEL;
   const body = {
     model: modelId,
@@ -253,5 +315,7 @@ export async function classifyWithClaude(meta, settings, history, policy) {
     };
   } catch (e) {
     return { verdict: null, error: "network", reason: String(e?.message || e) };
+  } finally {
+    _releaseSlot();
   }
 }

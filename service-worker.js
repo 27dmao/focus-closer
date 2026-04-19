@@ -294,6 +294,12 @@ function findMatchingBlocklistEntry(hostname, pathname, blocklist, toggles) {
   return null;
 }
 
+// Per-video in-flight dedup. Two yt_metadata messages for the same video
+// (rapid SPA route changes, multiple tabs of the same video) used to fan
+// out into N parallel Claude calls; this collapses them into one. The
+// underlying classifier client also has a global concurrency cap.
+const _videoClassifyInflight = new Map();
+
 async function classifyVideo(meta, settings, sessionActive) {
   if (await isVideoUserBlocked(meta.videoId)) {
     return { verdict: "unproductive", source: "user_block", reason: "you flagged this video as distracting", confidence: 1 };
@@ -305,41 +311,50 @@ async function classifyVideo(meta, settings, sessionActive) {
   const cached = await getVerdictFromCache(meta.videoId);
   if (cached && !sessionActive) return { ...cached, source: cached.source || "cache", cached: true };
 
-  const local = classifyLocally(meta, settings);
-  if (local && local.confidence >= 0.85) {
-    await setVerdictInCache(meta.videoId, local);
-    return local;
-  }
+  // Dedup by videoId — return any in-flight promise instead of starting another.
+  const inflight = _videoClassifyInflight.get(meta.videoId);
+  if (inflight) return inflight;
 
-  const history = await getFeedbackHistory();
-  const policy = await getPersonalPolicy();
-  const remote = await classifyWithClaude(meta, settings, history, policy);
-  if (remote.verdict) {
-    // Strict-mode confidence threshold: if Claude says "productive" with anything
-    // less than high confidence, treat as unproductive. The whole product is
-    // strict-leaning — ambiguous productive verdicts should default to close.
-    // Sessions push the bar even higher.
-    const minConfidence = sessionActive ? 0.9 : 0.85;
-    if (remote.verdict === "productive" && remote.confidence < minConfidence) {
-      const flipped = {
-        ...remote,
-        verdict: "unproductive",
-        reason: `low-confidence productive (${remote.confidence.toFixed(2)}: ${remote.reason}) — borderline defaults to close`,
-        source: sessionActive ? "session_boost" : "low_confidence_flip"
-      };
-      await setVerdictInCache(meta.videoId, flipped);
-      return flipped;
+  const promise = (async () => {
+    const local = classifyLocally(meta, settings);
+    if (local && local.confidence >= 0.85) {
+      await setVerdictInCache(meta.videoId, local);
+      return local;
     }
-    await setVerdictInCache(meta.videoId, remote);
-    return remote;
-  }
 
-  return {
-    verdict: "keep_open",
-    confidence: 0,
-    reason: `classifier unavailable (${remote.error}): ${remote.reason}`,
-    source: "fail_open"
-  };
+    const history = await getFeedbackHistory();
+    const policy = await getPersonalPolicy();
+    const remote = await classifyWithClaude(meta, settings, history, policy);
+    if (remote.verdict) {
+      // Strict-mode confidence threshold: if Claude says "productive" with anything
+      // less than high confidence, treat as unproductive. The whole product is
+      // strict-leaning — ambiguous productive verdicts should default to close.
+      // Sessions push the bar even higher.
+      const minConfidence = sessionActive ? 0.9 : 0.85;
+      if (remote.verdict === "productive" && remote.confidence < minConfidence) {
+        const flipped = {
+          ...remote,
+          verdict: "unproductive",
+          reason: `low-confidence productive (${remote.confidence.toFixed(2)}: ${remote.reason}) — borderline defaults to close`,
+          source: sessionActive ? "session_boost" : "low_confidence_flip"
+        };
+        await setVerdictInCache(meta.videoId, flipped);
+        return flipped;
+      }
+      await setVerdictInCache(meta.videoId, remote);
+      return remote;
+    }
+
+    return {
+      verdict: "keep_open",
+      confidence: 0,
+      reason: `classifier unavailable (${remote.error}): ${remote.reason}`,
+      source: "fail_open"
+    };
+  })().finally(() => { _videoClassifyInflight.delete(meta.videoId); });
+
+  _videoClassifyInflight.set(meta.videoId, promise);
+  return promise;
 }
 
 async function pickPopupTabId(excludeTabId) {
@@ -630,20 +645,24 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 });
 
 // ─── Sender validation ───────────────────────────────────────────────────────
-// Content scripts on attacker-controlled pages can call any chrome.runtime
-// message handler. We validate sender by category:
-//   - extension-only: caller must be our own extension page (no sender.tab,
-//     and sender.id matches our extension)
+// Without this, any malicious webpage can call any chrome.runtime message
+// handler — including ones that mutate settings (overwrite the user's API
+// key), wipe logs, or trigger billable Claude calls. Three categories:
+//   - extension-only: caller must be our own page (no sender.tab AND
+//     sender.url starts with chrome-extension://<our-id>/)
 //   - content-script + hostname-bound: sender.tab.url's hostname must match
 //     the hostname in the message payload
-//   - popup-action: caller must include the single-use nonce we generated when
+//   - popup-action: caller must include the single-use nonce we issued when
 //     injecting the popup into that specific tab
 function isExtensionOriginated(sender) {
-  // Messages from extension pages (options, popup) have no sender.tab and
-  // sender.url starts with chrome-extension://<our-id>/
-  if (sender?.tab) return false;
   if (sender?.id !== chrome.runtime.id) return false;
-  return typeof sender.url === "string" && sender.url.startsWith(`chrome-extension://${chrome.runtime.id}/`);
+  // Extension pages can run in tabs (options page opened via
+  // openOptionsPage with open_in_tab:true, devtools panels). What
+  // matters is the *origin*, not whether sender.tab exists. Attackers
+  // can't load chrome-extension://<our-id>/ URLs, so checking the URL
+  // prefix here is sufficient.
+  const url = sender?.url || sender?.tab?.url || "";
+  return url.startsWith(`chrome-extension://${chrome.runtime.id}/`);
 }
 
 function senderHostname(sender) {
@@ -766,6 +785,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "get_dashboard") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       const [stats, settings, meta, session, log, policy, history, unreflected, timeStats, training, snapshot] = await Promise.all([
         getStats(),
@@ -907,6 +927,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "run_reflection") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       const result = await maybeRunReflection({ force: true });
       const ok = !!(result && !result.error);
@@ -916,6 +937,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "clear_personal_policy") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       await clearPersonalPolicy();
       sendResponse({ ok: true });
@@ -924,6 +946,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "get_default_system_prompt") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       const settings = await getSync();
       sendResponse({ ok: true, prompt: getDefaultSystemPrompt(settings) });
@@ -932,6 +955,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "apply_brief") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       const settings = await getSync();
       if (!settings.apiKey) {
@@ -1003,6 +1027,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "start_session") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       const session = await startSession({
         durationMs: msg.durationMs || 25 * 60 * 1000,
@@ -1016,6 +1041,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "end_session") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       chrome.alarms.clear("session_end");
       const s = await endSession();
@@ -1025,6 +1051,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "get_log") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       const log = await getLog();
       sendResponse({ log });
@@ -1033,11 +1060,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "clear_log") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => { await clearLog(); sendResponse({ ok: true }); })();
     return true;
   }
 
   if (msg?.type === "remove_log_entry") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       const res = await removeLogEntry(msg.at);
       sendResponse({ ok: true, ...res });
@@ -1046,6 +1075,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "refute_log_entry") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       const entry = await getLogEntry(msg.at);
       if (!entry) { sendResponse({ ok: false, error: "not_found" }); return; }
@@ -1101,6 +1131,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "set_settings") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       await setSync(msg.partial || {});
       sendResponse({ ok: true });
@@ -1109,6 +1140,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg?.type === "clear_video_cache") {
+    if (!isExtensionOriginated(sender)) { sendResponse({ ok: false, error: "forbidden" }); return true; }
     (async () => {
       const items = await chrome.storage.local.get(null);
       const toRemove = Object.keys(items).filter((k) => k.startsWith("v:") || k.startsWith("v2:") || k.startsWith("v3:") || k.startsWith("v4:"));
