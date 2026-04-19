@@ -68,7 +68,6 @@ document.querySelectorAll(".tab").forEach((tab) => {
     document.querySelector(`.panel[data-panel="${tab.dataset.tab}"]`).classList.remove("hidden");
     if (tab.dataset.tab === "dashboard") refreshDashboard();
     if (tab.dataset.tab === "log") refreshLog();
-    if (tab.dataset.tab === "insights") refreshInsights();
     if (tab.dataset.tab === "sessions") refreshStatusBar();
   });
 });
@@ -357,91 +356,6 @@ function renderLog() {
   }
 }
 
-function renderInsights(insights) {
-  const el = $("insightsContent");
-  const meta = $("insightsMeta");
-  el.innerHTML = "";
-  if (insights?.error) {
-    const err = document.createElement("div");
-    err.className = "error";
-    err.textContent = insights.reason || insights.error;
-    el.appendChild(err);
-    meta.textContent = "";
-    return;
-  }
-  if (!insights?.text) {
-    const empty = document.createElement("div");
-    empty.className = "empty";
-    empty.textContent = 'No insights yet — click "Generate fresh insights."';
-    el.appendChild(empty);
-    meta.textContent = "";
-    return;
-  }
-
-  // Parse Claude's structured response into (label, body) sections.
-  // Use textContent for all user-visible strings to avoid any HTML injection risk.
-  const SECTIONS = [
-    [/^PATTERN OBSERVED:\s*/im, "Pattern observed"],
-    [/^BIGGEST ATTENTION LEAK:\s*/im, "Biggest attention leak"],
-    [/^ONE THING TO TRY:\s*/im, "One thing to try"]
-  ];
-
-  const text = insights.text;
-  // Locate each section in the text.
-  const hits = [];
-  for (const [re, label] of SECTIONS) {
-    const m = text.match(re);
-    if (m) hits.push({ idx: m.index, len: m[0].length, label });
-  }
-  hits.sort((a, b) => a.idx - b.idx);
-
-  if (hits.length === 0) {
-    const p = document.createElement("p");
-    p.textContent = text;
-    el.appendChild(p);
-  } else {
-    for (let i = 0; i < hits.length; i++) {
-      const h = hits[i];
-      const bodyStart = h.idx + h.len;
-      const bodyEnd = i + 1 < hits.length ? hits[i + 1].idx : text.length;
-      const body = text.slice(bodyStart, bodyEnd).trim();
-      const labelEl = document.createElement("span");
-      labelEl.className = "section-label";
-      labelEl.textContent = h.label;
-      el.appendChild(labelEl);
-      const p = document.createElement("p");
-      p.textContent = body;
-      p.style.marginBottom = "4px";
-      el.appendChild(p);
-    }
-  }
-
-  meta.textContent = `Generated ${formatRelativeTime(insights.generatedAt)}`;
-}
-
-async function refreshInsights() {
-  const el = $("insightsContent");
-  el.innerHTML = `<div class="empty">Loading cached insights...</div>`;
-  const data = await send("get_dashboard");
-  if (data.insights) {
-    renderInsights(data.insights);
-  } else {
-    el.innerHTML = `<div class="empty">No insights generated yet. Click "Generate fresh insights" below — costs about $0.001.</div>`;
-  }
-}
-
-async function generateInsights() {
-  const el = $("insightsContent");
-  const btn = $("insightsGenerate");
-  btn.disabled = true;
-  btn.textContent = "Generating...";
-  el.innerHTML = `<div class="empty">Asking Claude...</div>`;
-  const res = await send("get_insights", { force: true });
-  renderInsights(res.insights);
-  btn.disabled = false;
-  btn.textContent = "Generate fresh insights";
-}
-
 async function loadRules() {
   const data = await send("get_dashboard");
   const settings = data?.settings || {};
@@ -497,10 +411,57 @@ $("onboardSkip1").addEventListener("click", async () => { await finishOnboarding
 $("onboardDone").addEventListener("click", async () => {
   const key = $("onboardApiKey").value.trim();
   const strict = document.querySelector('input[name="strict"]:checked').value;
+  const briefText = ($("onboardBrief").value || "").trim();
   const partial = { strictLevel: strict };
   if (key) partial.apiKey = key;
+  // Save settings + close onboarding immediately so the user isn't waiting.
   await finishOnboarding(partial);
+  // Then fire the brief application in the background if they wrote one.
+  if (briefText && key) {
+    const res = await send("apply_brief", { text: briefText });
+    if (res?.ok) {
+      const s = res.summary;
+      const parts = [];
+      if (s.domainsAdded.length) parts.push(`blocked ${s.domainsAdded.length} domain${s.domainsAdded.length === 1 ? "" : "s"}`);
+      if (s.channelsAdded.length) parts.push(`${s.channelsAdded.length} channel${s.channelsAdded.length === 1 ? "" : "s"}`);
+      if (s.rulesAdded) parts.push(`${s.rulesAdded} policy rule${s.rulesAdded === 1 ? "" : "s"}`);
+      if (parts.length) alert(`Trained from your description: ${parts.join(", ")}.`);
+      loadRules();
+      refreshDashboard();
+    }
+  }
 });
+
+async function applyBrief() {
+  const btn = $("briefApplyBtn");
+  const status = $("briefStatus");
+  const text = ($("briefText").value || "").trim();
+  if (!text) { status.textContent = "Write a description first."; status.style.color = "var(--unproductive)"; return; }
+  btn.disabled = true;
+  btn.textContent = "Training…";
+  status.textContent = "";
+  const res = await send("apply_brief", { text });
+  btn.disabled = false;
+  btn.textContent = "Train";
+  if (!res?.ok) {
+    status.textContent = res?.reason || "Failed to apply.";
+    status.style.color = "var(--unproductive)";
+    return;
+  }
+  const s = res.summary;
+  const parts = [];
+  if (s.domainsAdded.length) parts.push(`+${s.domainsAdded.length} domain${s.domainsAdded.length === 1 ? "" : "s"}`);
+  if (s.channelsAdded.length) parts.push(`+${s.channelsAdded.length} channel${s.channelsAdded.length === 1 ? "" : "s"}`);
+  if (s.rulesAdded) parts.push(`+${s.rulesAdded} rule${s.rulesAdded === 1 ? "" : "s"}`);
+  if (s.domainsRejected.length) parts.push(`(${s.domainsRejected.length} skipped — work-protected)`);
+  status.textContent = parts.length ? `${parts.join(" · ")} ✓` : "No new rules — already covered.";
+  status.style.color = "";
+  $("briefText").value = "";
+  setTimeout(() => (status.textContent = ""), 4000);
+  loadRules();
+  refreshDashboard();
+}
+$("briefApplyBtn").addEventListener("click", applyBrief);
 
 // Sessions
 $("sessionStartBtn").addEventListener("click", async () => {
@@ -540,7 +501,6 @@ $("replayOnboarding").addEventListener("click", async () => {
   await send("set_settings", { partial: { onboardingComplete: false } });
   $("onboarding").classList.remove("hidden");
 });
-$("insightsGenerate").addEventListener("click", generateInsights);
 $("reflectBtn").addEventListener("click", async () => {
   const btn = $("reflectBtn");
   const status = $("reflectStatus");

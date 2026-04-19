@@ -23,6 +23,10 @@
           <label class="strict-opt"><input type="radio" name="strict" value="balanced"><div><div class="strict-title">Balanced</div><div class="strict-sub">Only high-confidence unproductive closes.</div></div></label>
         </div>
       </div>
+      <div class="onboard-field">
+        <label>Tell me what distracts you <span class="mute">— Optional but recommended. Plain English. The AI will turn this into rules.</span></label>
+        <textarea id="onboardBrief" rows="4" placeholder="e.g., I scroll Instagram and Twitter way too much. MrBeast and iShowSpeed videos suck me in. I check email compulsively. I get sucked into chess highlights and Marvel clips."></textarea>
+      </div>
       <div class="step-actions">
         <button class="btn-ghost" id="onboardSkip1">I'll set this up later</button>
         <button class="btn-primary" id="onboardDone">Start focusing →</button>
@@ -49,7 +53,6 @@
 <nav class="tabs">
   <button class="tab active" data-tab="dashboard">Dashboard</button>
   <button class="tab" data-tab="sessions">Focus sessions</button>
-  <button class="tab" data-tab="insights">Insights</button>
   <button class="tab" data-tab="rules">Rules</button>
   <button class="tab" data-tab="log">Log</button>
   <button class="tab" data-tab="help">Help</button>
@@ -178,28 +181,24 @@
   </div>
 </section>
 
-<section class="panel hidden" data-panel="insights">
-  <div class="card insights-card">
-    <div class="card-header">
-      <h3>AI weekly insights</h3>
-      <span class="card-sub">Claude analyzes your last 7 days of data</span>
-    </div>
-    <div id="insightsContent" class="insights-content">
-      <div class="empty">Loading...</div>
-    </div>
-    <div class="btn-row" style="margin-top:16px;">
-      <button class="btn-primary" id="insightsGenerate">Generate fresh insights</button>
-      <span id="insightsMeta" class="save-status"></span>
-    </div>
-    <div class="help">Costs ~$0.001 per generation. Results cache for 1 hour.</div>
-  </div>
-</section>
-
 <section class="panel hidden" data-panel="rules">
   <div class="card">
     <div class="card-header"><h3>Anthropic API key</h3></div>
     <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off" />
     <div class="help">Stored in chrome.storage.sync. Used only for calls to api.anthropic.com. Needed when local rules can't decide.</div>
+  </div>
+
+  <div class="card brief-card">
+    <div class="card-header">
+      <h3>Train by description</h3>
+      <span class="card-sub">Plain English → rules</span>
+    </div>
+    <textarea id="briefText" rows="4" placeholder="e.g., I scroll Instagram and Twitter way too much. MrBeast and iShowSpeed videos suck me in. I check email compulsively. I get sucked into chess highlights and Marvel clips."></textarea>
+    <div class="btn-row" style="margin-top:10px;">
+      <button class="btn-primary" id="briefApplyBtn">Train</button>
+      <span id="briefStatus" class="save-status"></span>
+    </div>
+    <div class="help">Claude turns your description into blocklist domains, channel-block entries, and policy rules. Work tools (Gmail, Calendar, Symbal, etc.) are protected from accidental blocks. Costs ~$0.001 per call.</div>
   </div>
 
   <div class="card">

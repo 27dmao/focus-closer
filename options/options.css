@@ -266,24 +266,12 @@ kbd {
 .dots li { margin-bottom: 8px; line-height: 1.55; }
 .dots b { color: var(--text); }
 
-.insights-content {
-  background: var(--bg); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 20px;
-  min-height: 160px; line-height: 1.65; font-size: 14px;
-  white-space: pre-wrap;
-}
-.insights-content .section-label {
-  color: var(--accent); font-weight: 700; font-size: 11px;
-  text-transform: uppercase; letter-spacing: 0.08em;
-  margin-top: 14px; margin-bottom: 4px; display: block;
-}
-.insights-content .section-label:first-child { margin-top: 0; }
-.insights-content .error { color: var(--unproductive); }
-
 .policy-card {
   border-color: rgba(62, 207, 142, 0.3);
   background: linear-gradient(135deg, var(--bg-elev), rgba(62, 207, 142, 0.04));
 }
+.brief-card { border-color: rgba(255, 107, 74, 0.3); background: linear-gradient(135deg, var(--bg-elev), rgba(255, 107, 74, 0.03)); }
+.brief-card textarea { font-family: inherit; font-size: 13px; }
 .policy-summary { color: var(--text-dim); font-size: 13px; line-height: 1.55; margin-bottom: 12px; }
 .policy-summary:empty { display: none; }
 .policy-rules { list-style: none; padding: 0; margin: 0 0 12px; display: flex; flex-direction: column; gap: 6px; }

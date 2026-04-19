@@ -19,8 +19,6 @@ import {
   startSession,
   endSession,
   incrementSessionCloseCount,
-  getInsightsCache,
-  setInsightsCache,
   recordFeedback,
   getFeedbackHistory,
   getUnreflectedCount,
@@ -33,8 +31,8 @@ import {
 import { logDecision, getStats, getLog, clearLog, removeLogEntry, getLogEntry } from "./lib/logger.js";
 import { classifyLocally } from "./classifier/rules.js";
 import { classifyWithClaude } from "./classifier/claude.js";
-import { generateInsights } from "./classifier/insights.js";
 import { distillPolicy } from "./classifier/policy.js";
+import { parseBrief } from "./classifier/brief.js";
 
 chrome.runtime.onInstalled.addListener(() => { getOrInitInstallMeta(); });
 chrome.runtime.onStartup.addListener(() => { getOrInitInstallMeta(); });
@@ -504,12 +502,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg?.type === "get_dashboard") {
     (async () => {
-      const [stats, settings, meta, session, insights, log, policy, history, unreflected] = await Promise.all([
+      const [stats, settings, meta, session, log, policy, history, unreflected] = await Promise.all([
         getStats(),
         getSync(),
         getOrInitInstallMeta(),
         getSessionState(),
-        getInsightsCache(),
         getLog(),
         getPersonalPolicy(),
         getFeedbackHistory(),
@@ -521,7 +518,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         allows: history.allows?.length || 0,
         unreflected
       };
-      sendResponse({ stats, settings, installedAt: meta.installedAt, session, insights, heatmap, policy, feedbackCounts });
+      sendResponse({ stats, settings, installedAt: meta.installedAt, session, heatmap, policy, feedbackCounts });
     })();
     return true;
   }
@@ -538,6 +535,77 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       await clearPersonalPolicy();
       sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (msg?.type === "apply_brief") {
+    (async () => {
+      const settings = await getSync();
+      if (!settings.apiKey) {
+        sendResponse({ ok: false, error: "no_api_key", reason: "Add an Anthropic API key on the Rules tab first." });
+        return;
+      }
+      const result = await parseBrief(msg.text || "", settings.apiKey);
+      if (result.error) {
+        sendResponse({ ok: false, error: result.error, reason: result.reason });
+        return;
+      }
+
+      const summary = { domainsAdded: [], channelsAdded: [], rulesAdded: 0, domainsRejected: [] };
+
+      // Merge domains, skipping any that fall under the hardcoded work-whitelist.
+      const blocklist = (settings.blocklist || []).slice();
+      for (const raw of result.domains) {
+        const d = String(raw || "").toLowerCase().trim().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
+        if (!d) continue;
+        if (isWorkWhitelisted(d)) {
+          summary.domainsRejected.push(d);
+          continue;
+        }
+        if (!blocklist.includes(d)) {
+          blocklist.push(d);
+          summary.domainsAdded.push(d);
+        }
+      }
+
+      // Merge YouTube channels.
+      const channelBlocklist = (settings.channelBlocklist || []).slice();
+      for (const c of result.youtube_channels) {
+        const name = String(c || "").trim();
+        if (name && !channelBlocklist.includes(name)) {
+          channelBlocklist.push(name);
+          summary.channelsAdded.push(name);
+        }
+      }
+
+      if (summary.domainsAdded.length || summary.channelsAdded.length) {
+        await setSync({ blocklist, channelBlocklist });
+      }
+
+      // Merge policy rules into the personal policy.
+      if (result.policy_rules.length > 0) {
+        const existing = await getPersonalPolicy();
+        const existingRules = existing?.rules || [];
+        const merged = [...existingRules];
+        for (const r of result.policy_rules) {
+          const rule = String(r || "").trim();
+          if (!rule) continue;
+          const norm = rule.toLowerCase();
+          if (!merged.some((e) => e.toLowerCase() === norm)) {
+            merged.push(rule);
+            summary.rulesAdded += 1;
+          }
+        }
+        await setPersonalPolicy({
+          rules: merged.slice(0, 24),
+          summary: existing?.summary || result.summary,
+          feedbackCount: existing?.feedbackCount || 0,
+          generatedAt: Date.now()
+        });
+      }
+
+      sendResponse({ ok: true, summary, modelSummary: result.summary });
     })();
     return true;
   }
@@ -560,22 +628,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       chrome.alarms.clear("session_end");
       const s = await endSession();
       sendResponse({ ok: true, ended: s });
-    })();
-    return true;
-  }
-
-  if (msg?.type === "get_insights") {
-    (async () => {
-      const settings = await getSync();
-      const existing = await getInsightsCache();
-      if (!msg.force && existing && Date.now() - existing.generatedAt < 60 * 60 * 1000) {
-        sendResponse({ ok: true, cached: true, insights: existing });
-        return;
-      }
-      const log = await getLog();
-      const result = await generateInsights(log, settings.apiKey);
-      if (!result.error) await setInsightsCache(result);
-      sendResponse({ ok: !result.error, insights: result });
     })();
     return true;
   }
