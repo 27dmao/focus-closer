@@ -126,6 +126,12 @@ function findMatchingBlocklistEntry(hostname, pathname, blocklist, toggles) {
   return null;
 }
 
+// Per-video in-flight dedup. Two yt_metadata messages for the same video
+// (rapid SPA route changes, multiple tabs of the same video) used to fan
+// out into N parallel Claude calls; this collapses them into one. The
+// underlying classifier client also has a global concurrency cap.
+const _videoClassifyInflight = new Map();
+
 async function classifyVideo(meta, settings, sessionActive) {
   if (await isVideoUserBlocked(meta.videoId)) {
     return { verdict: "unproductive", source: "user_block", reason: "you flagged this video as distracting", confidence: 1 };
@@ -137,41 +143,50 @@ async function classifyVideo(meta, settings, sessionActive) {
   const cached = await getVerdictFromCache(meta.videoId);
   if (cached && !sessionActive) return { ...cached, source: cached.source || "cache", cached: true };
 
-  const local = classifyLocally(meta, settings);
-  if (local && local.confidence >= 0.85) {
-    await setVerdictInCache(meta.videoId, local);
-    return local;
-  }
+  // Dedup by videoId — return any in-flight promise instead of starting another.
+  const inflight = _videoClassifyInflight.get(meta.videoId);
+  if (inflight) return inflight;
 
-  const history = await getFeedbackHistory();
-  const policy = await getPersonalPolicy();
-  const remote = await classifyWithClaude(meta, settings, history, policy);
-  if (remote.verdict) {
-    // Strict-mode confidence threshold: if Claude says "productive" with anything
-    // less than high confidence, treat as unproductive. The whole product is
-    // strict-leaning — ambiguous productive verdicts should default to close.
-    // Sessions push the bar even higher.
-    const minConfidence = sessionActive ? 0.9 : 0.85;
-    if (remote.verdict === "productive" && remote.confidence < minConfidence) {
-      const flipped = {
-        ...remote,
-        verdict: "unproductive",
-        reason: `low-confidence productive (${remote.confidence.toFixed(2)}: ${remote.reason}) — borderline defaults to close`,
-        source: sessionActive ? "session_boost" : "low_confidence_flip"
-      };
-      await setVerdictInCache(meta.videoId, flipped);
-      return flipped;
+  const promise = (async () => {
+    const local = classifyLocally(meta, settings);
+    if (local && local.confidence >= 0.85) {
+      await setVerdictInCache(meta.videoId, local);
+      return local;
     }
-    await setVerdictInCache(meta.videoId, remote);
-    return remote;
-  }
 
-  return {
-    verdict: "keep_open",
-    confidence: 0,
-    reason: `classifier unavailable (${remote.error}): ${remote.reason}`,
-    source: "fail_open"
-  };
+    const history = await getFeedbackHistory();
+    const policy = await getPersonalPolicy();
+    const remote = await classifyWithClaude(meta, settings, history, policy);
+    if (remote.verdict) {
+      // Strict-mode confidence threshold: if Claude says "productive" with anything
+      // less than high confidence, treat as unproductive. The whole product is
+      // strict-leaning — ambiguous productive verdicts should default to close.
+      // Sessions push the bar even higher.
+      const minConfidence = sessionActive ? 0.9 : 0.85;
+      if (remote.verdict === "productive" && remote.confidence < minConfidence) {
+        const flipped = {
+          ...remote,
+          verdict: "unproductive",
+          reason: `low-confidence productive (${remote.confidence.toFixed(2)}: ${remote.reason}) — borderline defaults to close`,
+          source: sessionActive ? "session_boost" : "low_confidence_flip"
+        };
+        await setVerdictInCache(meta.videoId, flipped);
+        return flipped;
+      }
+      await setVerdictInCache(meta.videoId, remote);
+      return remote;
+    }
+
+    return {
+      verdict: "keep_open",
+      confidence: 0,
+      reason: `classifier unavailable (${remote.error}): ${remote.reason}`,
+      source: "fail_open"
+    };
+  })().finally(() => { _videoClassifyInflight.delete(meta.videoId); });
+
+  _videoClassifyInflight.set(meta.videoId, promise);
+  return promise;
 }
 
 async function pickPopupTabId(excludeTabId) {
