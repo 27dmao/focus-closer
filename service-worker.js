@@ -20,7 +20,9 @@ import {
   endSession,
   incrementSessionCloseCount,
   getInsightsCache,
-  setInsightsCache
+  setInsightsCache,
+  recordFeedback,
+  getFeedbackHistory
 } from "./lib/storage.js";
 import { logDecision, getStats, getLog, clearLog, removeLogEntry, getLogEntry } from "./lib/logger.js";
 import { generateSuggestions } from "./lib/suggestions.js";
@@ -106,7 +108,8 @@ async function classifyVideo(meta, settings, sessionActive) {
     return local;
   }
 
-  const remote = await classifyWithClaude(meta, settings);
+  const history = await getFeedbackHistory();
+  const remote = await classifyWithClaude(meta, settings, history);
   if (remote.verdict) {
     if (sessionActive && remote.verdict === "productive" && remote.confidence < 0.8) {
       await setVerdictInCache(meta.videoId, remote);
@@ -571,6 +574,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               await setSync({ channelWhitelist: wl });
             }
           }
+          if (entry.title) await recordFeedback("productive", { title: entry.title, channel: entry.channel, videoId: entry.videoId });
           sendResponse({ ok: true, action: "video_whitelisted" });
         } else {
           // Wrongly kept — user-block the video + the channel (if we have it)
@@ -584,6 +588,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               await setSync({ channelBlocklist: bl });
             }
           }
+          if (entry.title) await recordFeedback("unproductive", { title: entry.title, channel: entry.channel, videoId: entry.videoId });
           sendResponse({ ok: true, action: "video_blocked" });
         }
         return;
@@ -688,6 +693,11 @@ chrome.commands.onCommand.addListener(async (command) => {
           channelAutoBlocked = true;
         }
       }
+
+      // Record this flag as a few-shot example for Claude. Future videos
+      // that resemble this title's shape/topic/vibe will close even from
+      // unfamiliar channels.
+      await recordFeedback("unproductive", { title: meta.title || tab.title, channel: meta.channel, videoId: parsed.videoId });
     }
 
     const reason = !parsed
@@ -816,6 +826,7 @@ chrome.commands.onCommand.addListener(async (command) => {
       } catch {}
       const { channelAdded, channelRemoved } = await commitAllow({ videoId: parsed.videoId, channel: meta.channel });
       const reason = buildAllowReason(meta.channel, channelAdded, channelRemoved, "preempt");
+      await recordFeedback("productive", { title: meta.title || tab.title, channel: meta.channel, videoId: parsed.videoId });
       await logDecision({
         kind: "user_allow",
         videoId: parsed.videoId,
@@ -846,6 +857,9 @@ chrome.commands.onCommand.addListener(async (command) => {
       } else {
         const { channelAdded } = await commitAllow({ videoId: recent.videoId, channel: recent.channel });
         reason = buildAllowReason(recent.channel, channelAdded, false, "undo");
+      }
+      if (recent.title) {
+        await recordFeedback("productive", { title: recent.title, channel: recent.channel, videoId: recent.videoId });
       }
       await logDecision({
         kind: "user_allow",

@@ -70,17 +70,51 @@ Respond with ONLY a JSON object, no prose:
 {"verdict": "productive" | "unproductive", "confidence": 0.0-1.0, "reason": "<one short sentence>"}`;
 }
 
-function buildUserPrompt(meta) {
+function buildUserPrompt(meta, history) {
   const desc = (meta.description || "").slice(0, 500);
   const tags = (meta.tags || []).slice(0, 15).join(", ");
-  return `Title: ${meta.title || "(unknown)"}
+
+  // Personalized few-shot from the user's actual flag/allow history.
+  // This is the LEARNING loop: every X/S press becomes context Claude reasons
+  // over. After ~10 flags Claude internalizes the user's specific taste.
+  const historyBlock = formatHistoryBlock(history);
+
+  return `${historyBlock}NOW CLASSIFY:
+Title: ${meta.title || "(unknown)"}
 Channel: ${meta.channel || "(unknown)"}
 Category: ${meta.category || "(unknown)"}
 Tags: ${tags || "(none)"}
 Description (first 500 chars): ${desc || "(empty)"}`;
 }
 
-export async function classifyWithClaude(meta, settings) {
+function formatHistoryBlock(history) {
+  if (!history) return "";
+  const flags = (history.flags || []).slice(-12);
+  const allows = (history.allows || []).slice(-8);
+  if (flags.length === 0 && allows.length === 0) return "";
+
+  const parts = ["THIS USER'S RECENT FEEDBACK — weight these heavily as ground truth for their personal taste:"];
+  if (flags.length) {
+    parts.push("");
+    parts.push("Marked DISTRACTING (close anything similar in shape, topic, or vibe):");
+    for (const e of flags) {
+      parts.push(`  • "${e.title}"${e.channel ? `  —  ${e.channel}` : ""}`);
+    }
+  }
+  if (allows.length) {
+    parts.push("");
+    parts.push("Marked PRODUCTIVE (keep anything similar in shape, topic, or vibe):");
+    for (const e of allows) {
+      parts.push(`  • "${e.title}"${e.channel ? `  —  ${e.channel}` : ""}`);
+    }
+  }
+  parts.push("");
+  parts.push("If the new video resembles ANY flagged item by topic, format, or clickbait pattern, choose unproductive even if the channel is unfamiliar.");
+  parts.push("");
+  return parts.join("\n") + "\n";
+}
+
+export async function classifyWithClaude(meta, settings, history) {
   if (!settings.apiKey) {
     return {
       verdict: null,
@@ -99,7 +133,7 @@ export async function classifyWithClaude(meta, settings) {
         cache_control: { type: "ephemeral" }
       }
     ],
-    messages: [{ role: "user", content: buildUserPrompt(meta) }]
+    messages: [{ role: "user", content: buildUserPrompt(meta, history) }]
   };
 
   try {
