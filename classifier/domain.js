@@ -20,6 +20,57 @@ import { DEFAULT_MODEL } from "../lib/pricing.js";
 const ENDPOINT = "https://api.anthropic.com/v1/messages";
 const MAX_TOKENS = 200;
 
+// ─── Claude call rate limiting ───────────────────────────────────────────────
+// Restoring a session or opening many tabs at once must not fan out to N
+// simultaneous Claude calls — both for cost and for API rate-limit headroom.
+const MAX_INFLIGHT = 3;
+const MAX_PER_MINUTE = 30;
+let _inflight = 0;
+const _waitQueue = [];
+const _recentCallTs = []; // timestamps of last MAX_PER_MINUTE Claude calls
+
+function _pruneRateWindow(now) {
+  const cutoff = now - 60_000;
+  while (_recentCallTs.length && _recentCallTs[0] < cutoff) _recentCallTs.shift();
+}
+
+async function _acquireSlot() {
+  const now = Date.now();
+  _pruneRateWindow(now);
+  if (_recentCallTs.length >= MAX_PER_MINUTE) {
+    // Soft cap — refuse and let caller skip Claude entirely.
+    return false;
+  }
+  if (_inflight < MAX_INFLIGHT) {
+    _inflight++;
+    _recentCallTs.push(now);
+    return true;
+  }
+  // Wait for a slot to free up. Cap wait at 30s to avoid hanging tabs.
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      const i = _waitQueue.indexOf(resolveSlot);
+      if (i >= 0) _waitQueue.splice(i, 1);
+      resolve(false);
+    }, 30_000);
+    function resolveSlot() {
+      clearTimeout(timer);
+      _pruneRateWindow(Date.now());
+      if (_recentCallTs.length >= MAX_PER_MINUTE) { resolve(false); return; }
+      _inflight++;
+      _recentCallTs.push(Date.now());
+      resolve(true);
+    }
+    _waitQueue.push(resolveSlot);
+  });
+}
+
+function _releaseSlot() {
+  _inflight = Math.max(0, _inflight - 1);
+  const next = _waitQueue.shift();
+  if (next) next();
+}
+
 function findBlocklistMatch(hostname, pathname, settings) {
   const list = settings.blocklist || [];
   const toggles = settings.domainToggles || {};
@@ -122,6 +173,12 @@ function buildDomainUserPrompt({ hostname, title, description, policy, history }
 async function callClaude({ hostname, title, description, settings, policy, history }) {
   const apiKey = settings.apiKey;
   if (!apiKey) return { verdict: null, error: "no_api_key", reason: "No Anthropic API key configured" };
+
+  // Concurrency + rate-limit guard. Burst-open scenarios (50 tabs at once,
+  // session restore) must not fan out to N simultaneous Claude calls.
+  const got = await _acquireSlot();
+  if (!got) return { verdict: null, error: "rate_limited", reason: "Skipped — Claude rate limit (try later)" };
+
   const model = settings.classifierModel || DEFAULT_MODEL;
   const system = buildDomainSystemPrompt();
   const user = buildDomainUserPrompt({ hostname, title, description, policy, history });
@@ -166,6 +223,8 @@ async function callClaude({ hostname, title, description, settings, policy, hist
     };
   } catch (e) {
     return { verdict: null, error: "network", reason: String(e?.message || e) };
+  } finally {
+    _releaseSlot();
   }
 }
 
