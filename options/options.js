@@ -188,6 +188,7 @@ async function refreshDashboard() {
   const chart = $("chart7d");
   chart.innerHTML = "";
   const maxCount = Math.max(1, ...stats.perDayLast7.map((d) => d.closed));
+  const MAX_BAR_PX = 90;
   for (let i = 0; i < stats.perDayLast7.length; i++) {
     const day = stats.perDayLast7[i];
     const col = document.createElement("div");
@@ -197,7 +198,7 @@ async function refreshDashboard() {
     count.textContent = day.closed || "";
     const bar = document.createElement("div");
     bar.className = "bar";
-    bar.style.height = `${(day.closed / maxCount) * 100}%`;
+    bar.style.height = `${(day.closed / maxCount) * MAX_BAR_PX}px`;
     bar.title = `${day.closed} tabs, ${formatDuration(day.secondsSaved)} saved`;
     const label = document.createElement("div");
     label.className = "bar-label";
