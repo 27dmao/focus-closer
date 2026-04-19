@@ -39,7 +39,8 @@ import {
   startTrainingMode,
   endTrainingModeEarly,
   pruneOldBuckets,
-  clearDomainVerdictCache
+  clearDomainVerdictCache,
+  withLock
 } from "./lib/storage.js";
 import { logDecision, getStats, getLog, clearLog, removeLogEntry, getLogEntry, markLogEntryRefuted } from "./lib/logger.js";
 import { classifyLocally } from "./classifier/rules.js";
@@ -465,7 +466,13 @@ function popupRendererSource() {
     }
 
     if (isUserFlag) {
-      actions.appendChild(mkBtn("Undo", { action: "undo_user_flag", videoId: detail.videoId, url: detail.url, channel: detail.channelAutoBlocked ? detail.channel : null }, true));
+      actions.appendChild(mkBtn("Undo", {
+        action: "undo_user_flag",
+        videoId: detail.videoId,
+        url: detail.url,
+        channel: detail.channelAutoBlocked ? detail.channel : null,
+        hostname: detail.domainAutoBlocked ? detail.hostname : null
+      }, true));
     } else if (isYt) {
       actions.appendChild(mkBtn("Reopen (false positive)", { action: "reopen_video", videoId: detail.videoId, url: detail.url }, true));
       if (detail.channel) {
@@ -748,9 +755,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         // If the flag auto-blocked the channel, undo that too.
         if (p.channel) {
-          const settings = await getSync();
-          const list = (settings.channelBlocklist || []).filter((c) => c !== p.channel);
-          await setSync({ channelBlocklist: list });
+          await withLock("sync:settings", async () => {
+            const settings = await getSync();
+            const list = (settings.channelBlocklist || []).filter((c) => c !== p.channel);
+            await setSync({ channelBlocklist: list });
+          });
+        }
+        // Non-YouTube case: undo the auto-add to the URL blocklist too.
+        if (p.hostname) {
+          await withLock("sync:settings", async () => {
+            const settings = await getSync();
+            const list = (settings.blocklist || []).filter((d) => d !== p.hostname);
+            await setSync({ blocklist: list });
+          });
         }
         if (p.url) await chrome.tabs.create({ url: p.url });
       } else if (p.action === "reopen_once") {
@@ -760,21 +777,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (p.entry) await setOverride(p.entry, p.durationMs);
         if (p.url) await chrome.tabs.create({ url: p.url });
       } else if (p.action === "always_allow_channel") {
-        const settings = await getSync();
-        const list = settings.channelWhitelist || [];
-        if (p.channel && !list.includes(p.channel)) {
-          list.push(p.channel);
-          await setSync({ channelWhitelist: list });
-        }
+        await withLock("sync:settings", async () => {
+          const settings = await getSync();
+          const list = settings.channelWhitelist || [];
+          if (p.channel && !list.includes(p.channel)) {
+            list.push(p.channel);
+            await setSync({ channelWhitelist: list });
+          }
+        });
         if (p.videoId) await addVideoOverride(p.videoId);
         if (p.url) await chrome.tabs.create({ url: p.url });
       } else if (p.action === "always_block_channel") {
-        const settings = await getSync();
-        const list = settings.channelBlocklist || [];
-        if (p.channel && !list.includes(p.channel)) {
-          list.push(p.channel);
-          await setSync({ channelBlocklist: list });
-        }
+        await withLock("sync:settings", async () => {
+          const settings = await getSync();
+          const list = settings.channelBlocklist || [];
+          if (p.channel && !list.includes(p.channel)) {
+            list.push(p.channel);
+            await setSync({ channelBlocklist: list });
+          }
+        });
       } else if (p.action === "keep_domain_open") {
         if (p.hostname) await setDomainKeepOpen(p.hostname, p.durationMs ?? null);
         if (p.url) await chrome.tabs.create({ url: p.url });
@@ -970,48 +991,64 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
       const summary = { domainsAdded: [], channelsAdded: [], rulesAdded: 0, domainsRejected: [] };
 
-      // Merge domains, skipping any that fall under the hardcoded work-whitelist.
-      const blocklist = (settings.blocklist || []).slice();
-      for (const raw of result.domains) {
-        const d = String(raw || "").toLowerCase().trim().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
-        if (!d) continue;
-        if (isWorkWhitelisted(d)) {
-          summary.domainsRejected.push(d);
-          continue;
+      // Merge under lock so concurrent settings mutations don't drop entries.
+      // Re-read settings inside the lock to pick up anything written since
+      // the parseBrief call above.
+      await withLock("sync:settings", async () => {
+        const fresh = await getSync();
+        const blocklist = (fresh.blocklist || []).slice();
+        for (const raw of result.domains) {
+          const d = String(raw || "").toLowerCase().trim().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
+          if (!d) continue;
+          if (isWorkWhitelisted(d)) { summary.domainsRejected.push(d); continue; }
+          if (!blocklist.includes(d)) {
+            blocklist.push(d);
+            summary.domainsAdded.push(d);
+          }
         }
-        if (!blocklist.includes(d)) {
-          blocklist.push(d);
-          summary.domainsAdded.push(d);
-        }
-      }
 
-      // Merge YouTube channels.
-      const channelBlocklist = (settings.channelBlocklist || []).slice();
-      for (const c of result.youtube_channels) {
-        const name = String(c || "").trim();
-        if (name && !channelBlocklist.includes(name)) {
-          channelBlocklist.push(name);
-          summary.channelsAdded.push(name);
+        const channelBlocklist = (fresh.channelBlocklist || []).slice();
+        for (const c of result.youtube_channels) {
+          const name = String(c || "").trim();
+          if (name && !channelBlocklist.includes(name)) {
+            channelBlocklist.push(name);
+            summary.channelsAdded.push(name);
+          }
         }
-      }
 
-      if (summary.domainsAdded.length || summary.channelsAdded.length) {
-        await setSync({ blocklist, channelBlocklist });
-      }
+        if (summary.domainsAdded.length || summary.channelsAdded.length) {
+          await setSync({ blocklist, channelBlocklist });
+        }
+      });
 
       // Merge policy rules into the personal policy.
       if (result.policy_rules.length > 0) {
         const existing = await getPersonalPolicy();
         const existingRules = existing?.rules || [];
         const merged = [...existingRules];
+
+        // Dedup by normalized prefix so repeated brief applications don't
+        // accumulate near-duplicates ("close UFC highlights" vs "close UFC
+        // and MMA highlights"). Without this, the policy fills with chatter
+        // and the older meaningful rules get sliced out by the 24-cap.
+        const _norm = (s) => s
+          .toLowerCase()
+          .replace(/[^a-z0-9 ]+/g, "")
+          .split(/\s+/).filter(Boolean)
+          .slice(0, 6)
+          .join(" ");
+        const seenPrefixes = new Set(merged.map(_norm));
+
         for (const r of result.policy_rules) {
           const rule = String(r || "").trim();
           if (!rule) continue;
           const norm = rule.toLowerCase();
-          if (!merged.some((e) => e.toLowerCase() === norm)) {
-            merged.push(rule);
-            summary.rulesAdded += 1;
-          }
+          const prefix = _norm(rule);
+          if (merged.some((e) => e.toLowerCase() === norm)) continue;
+          if (prefix && seenPrefixes.has(prefix)) continue;
+          merged.push(rule);
+          if (prefix) seenPrefixes.add(prefix);
+          summary.rulesAdded += 1;
         }
         await setPersonalPolicy({
           rules: merged.slice(0, 24),
@@ -1088,12 +1125,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           await removeVideoUserBlock(entry.videoId);
           await addVideoOverride(entry.videoId);
           if (entry.channel) {
-            const settings = await getSync();
-            const wl = settings.channelWhitelist || [];
-            if (!wl.includes(entry.channel)) {
-              wl.push(entry.channel);
-              await setSync({ channelWhitelist: wl });
-            }
+            await withLock("sync:settings", async () => {
+              const settings = await getSync();
+              const wl = settings.channelWhitelist || [];
+              if (!wl.includes(entry.channel)) {
+                wl.push(entry.channel);
+                await setSync({ channelWhitelist: wl });
+              }
+            });
           }
           if (entry.title) await recordAndMaybeReflect("productive", { title: entry.title, channel: entry.channel, videoId: entry.videoId });
           await markLogEntryRefuted(msg.at, "video_whitelisted");
@@ -1103,12 +1142,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           await removeVideoOverride(entry.videoId);
           await addVideoUserBlock(entry.videoId);
           if (entry.channel) {
-            const settings = await getSync();
-            const bl = settings.channelBlocklist || [];
-            if (!bl.includes(entry.channel)) {
-              bl.push(entry.channel);
-              await setSync({ channelBlocklist: bl });
-            }
+            await withLock("sync:settings", async () => {
+              const settings = await getSync();
+              const bl = settings.channelBlocklist || [];
+              if (!bl.includes(entry.channel)) {
+                bl.push(entry.channel);
+                await setSync({ channelBlocklist: bl });
+              }
+            });
           }
           if (entry.title) await recordAndMaybeReflect("unproductive", { title: entry.title, channel: entry.channel, videoId: entry.videoId });
           await markLogEntryRefuted(msg.at, "video_blocked");
@@ -1211,13 +1252,15 @@ chrome.commands.onCommand.addListener(async (command) => {
       // Generalize: if we know the channel and it isn't already on the blocklist,
       // add it. One flag of a Dream Minecraft video should kill all Dream videos.
       if (meta.channel) {
-        const settings = await getSync();
-        const list = settings.channelBlocklist || [];
-        if (!list.includes(meta.channel)) {
-          list.push(meta.channel);
-          await setSync({ channelBlocklist: list });
-          channelAutoBlocked = true;
-        }
+        await withLock("sync:settings", async () => {
+          const settings = await getSync();
+          const list = settings.channelBlocklist || [];
+          if (!list.includes(meta.channel)) {
+            list.push(meta.channel);
+            await setSync({ channelBlocklist: list });
+            channelAutoBlocked = true;
+          }
+        });
       }
 
       // Record this flag as a few-shot example for Claude. Future videos
@@ -1229,13 +1272,15 @@ chrome.commands.onCommand.addListener(async (command) => {
       // policy reflection can derive cross-domain rules ("close any X-style
       // site"), and also auto-add the hostname to the blocklist.
       let domainAutoBlocked = false;
-      const settings = await getSync();
-      const list = settings.blocklist || [];
-      if (!list.includes(hostname)) {
-        list.push(hostname);
-        await setSync({ blocklist: list });
-        domainAutoBlocked = true;
-      }
+      await withLock("sync:settings", async () => {
+        const settings = await getSync();
+        const list = settings.blocklist || [];
+        if (!list.includes(hostname)) {
+          list.push(hostname);
+          await setSync({ blocklist: list });
+          domainAutoBlocked = true;
+        }
+      });
       await recordAndMaybeReflect("unproductive", { title: tab.title || hostname, hostname, url: tab.url });
       // Override the reason for the close popup since flow falls through to closeAndNotify
       meta.title = tab.title;
@@ -1270,9 +1315,11 @@ chrome.commands.onCommand.addListener(async (command) => {
       kind: "user_flag",
       videoId: parsed?.videoId,
       url: tab.url,
+      hostname,
       title: meta.title || tab.title,
       channel: meta.channel,
       channelAutoBlocked,
+      domainAutoBlocked: !!meta._domainAutoBlocked,
       lengthSeconds: meta.lengthSeconds || 0,
       reason
     });
@@ -1290,15 +1337,17 @@ chrome.commands.onCommand.addListener(async (command) => {
         await addVideoOverride(videoId);
       }
       if (channel) {
-        const settings = await getSync();
-        const wl = settings.channelWhitelist || [];
-        const blOriginal = settings.channelBlocklist || [];
-        if (!wl.includes(channel)) { wl.push(channel); channelAdded = true; }
-        const bl = blOriginal.filter((c) => c !== channel);
-        if (bl.length !== blOriginal.length) channelRemoved = true;
-        if (channelAdded || channelRemoved) {
-          await setSync({ channelWhitelist: wl, channelBlocklist: bl });
-        }
+        await withLock("sync:settings", async () => {
+          const settings = await getSync();
+          const wl = settings.channelWhitelist || [];
+          const blOriginal = settings.channelBlocklist || [];
+          if (!wl.includes(channel)) { wl.push(channel); channelAdded = true; }
+          const bl = blOriginal.filter((c) => c !== channel);
+          if (bl.length !== blOriginal.length) channelRemoved = true;
+          if (channelAdded || channelRemoved) {
+            await setSync({ channelWhitelist: wl, channelBlocklist: bl });
+          }
+        });
       }
       return { channelAdded, channelRemoved };
     }

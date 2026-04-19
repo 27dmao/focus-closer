@@ -66,7 +66,14 @@
     el.setAttribute("title", text);
   }
 
+  // SPA navigation across hostnames is rare (different origins typically
+  // mean a full page load, not pushState), but pages can redirect to a
+  // different subdomain mid-session. Refresh state.hostname before any
+  // SW message so we send/dismiss for the actually-current host.
   let state = { hostname: location.hostname.toLowerCase(), verdict: null, todayMs: 0, totalMs: 0 };
+  function refreshHostname() {
+    state.hostname = location.hostname.toLowerCase();
+  }
 
   function paint() {
     const el = ensureDot();
@@ -83,6 +90,7 @@
 
   async function refresh() {
     if (!isExtensionAlive()) return;
+    refreshHostname();
     const res = await send("get_indicator_state", { hostname: state.hostname });
     if (!res || !res.ok) return;
     if (res.dismissed) {
@@ -103,6 +111,7 @@
     el.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
+      refreshHostname(); // SPA-nav safety: dismiss the host the user actually sees
       el.style.opacity = "0";
       setTimeout(() => { el.remove(); document.documentElement.removeAttribute("data-focus-closer-dot"); }, 220);
       try { await send("dismiss_indicator", { hostname: state.hostname }); } catch {}
