@@ -52,15 +52,51 @@ function dayLabel(offset) {
   return d.toLocaleDateString(undefined, { weekday: "short" });
 }
 
-// Attention score: log-scale on recent weekly closes, weighted by seconds saved.
-// Returns 0-100 integer, meant to trend.
-function computeAttentionScore(stats) {
+// Attention score (0-100) — three orthogonal components measuring DIFFERENT things.
+// Returns { score, breakdown, refuteRate } or null if insufficient data.
+//
+// A. ACTIVITY (0-30) — how engaged the system is, log-scaled so it doesn't saturate.
+//    The OLD score saturated at ~27 closes/week, which is why every user hit 100.
+//
+// B. CALIBRATION (0-40) — the most important signal. Of all the closes the system
+//    made, how many did the user accept (didn't refute)? High = classifier matches
+//    your taste. Low = classifier is making mistakes you keep correcting.
+//
+// C. TIME SAVED (0-30) — log-scaled minutes saved. Caps at 8h+ for the week.
+function computeAttentionScore(stats, log) {
   const closes = stats.closedLast7 || 0;
   const seconds = stats.secondsSavedLast7 || 0;
   if (closes === 0 && seconds === 0) return null;
-  const closeComponent = Math.min(50, Math.log(closes + 1) * 15);
-  const timeComponent = Math.min(50, Math.log((seconds / 60) + 1) * 9);
-  return Math.round(closeComponent + timeComponent);
+
+  // A. Activity: log-scaled close count. 1 close → 5pt, 5 → 13, 20 → 24, 50+ → 30.
+  const activity = Math.min(30, Math.log(closes + 1) * 8.5);
+
+  // B. Calibration from refute rate.
+  const WEEK = 7 * 24 * 60 * 60 * 1000;
+  const recentCloses = (log || []).filter((e) =>
+    Date.now() - e.at <= WEEK &&
+    (e.verdict === "unproductive" || e.kind === "blocklist" || e.kind === "user_flag")
+  );
+  const refutedCount = recentCloses.filter((e) => e.refutedAt).length;
+  const refuteRate = recentCloses.length > 0 ? refutedCount / recentCloses.length : 0;
+  const calibration = recentCloses.length === 0
+    ? 20 // neutral if no recent data
+    : Math.max(0, 40 * (1 - refuteRate));
+
+  // C. Time saved: log-scaled. 30min → 10, 2h → 20, 8h+ → 30.
+  const timeSaved = Math.min(30, Math.log((seconds / 60) + 1) * 6);
+
+  return {
+    score: Math.round(activity + calibration + timeSaved),
+    breakdown: {
+      activity: Math.round(activity),
+      calibration: Math.round(calibration),
+      timeSaved: Math.round(timeSaved)
+    },
+    refuteRate,
+    refutedCount,
+    totalCloses: recentCloses.length
+  };
 }
 
 async function renderCostCard() {
@@ -294,16 +330,31 @@ function renderHeatmap(grid) {
 }
 
 async function refreshDashboard() {
-  const data = await send("get_dashboard");
+  // Fetch dashboard + log in parallel — score now needs log for refute data.
+  const [data, logResp] = await Promise.all([
+    send("get_dashboard"),
+    send("get_log")
+  ]);
   if (!data || !data.stats) return;
   const stats = data.stats;
+  const log = logResp?.log || [];
 
-  const score = computeAttentionScore(stats);
-  $("attentionScore").textContent = score == null ? "—" : score;
+  const scoreResult = computeAttentionScore(stats, log);
+  const scoreEl = $("attentionScore");
+  const subEl = $("attentionSub");
+  if (scoreResult == null) {
+    scoreEl.textContent = "—";
+    subEl.textContent = "Score appears after you rack up a few closes.";
+  } else {
+    scoreEl.textContent = scoreResult.score;
+    const b = scoreResult.breakdown;
+    const refutePct = (scoreResult.refuteRate * 100).toFixed(0);
+    const refuteNote = scoreResult.totalCloses > 0
+      ? ` · ${scoreResult.refutedCount}/${scoreResult.totalCloses} refuted (${refutePct}%)`
+      : "";
+    subEl.innerHTML = `Activity ${b.activity}/30 · <span title="Lower refute rate = classifier matches your taste">Calibration ${b.calibration}/40</span> · Time saved ${b.timeSaved}/30${refuteNote}`;
+  }
   const daysSinceInstall = Math.max(1, Math.round((Date.now() - data.installedAt) / (24 * 60 * 60 * 1000)));
-  $("attentionSub").textContent = score == null
-    ? "Score appears after you rack up a few closes."
-    : `Based on last 7 days · ${stats.closedLast7} closes · ${formatDuration(stats.secondsSavedLast7)} reclaimed`;
 
   $("statSaved7d").textContent = formatDuration(stats.secondsSavedLast7);
   $("statSaved7dSub").textContent = `${formatDuration(stats.secondsSavedToday)} today`;
@@ -372,8 +423,7 @@ async function refreshDashboard() {
   }
   if (bd.children.length === 0) bd.innerHTML = `<div class="empty">No data yet — use the extension for a bit.</div>`;
 
-  const logResp = await send("get_log");
-  const log = logResp?.log || [];
+  // Reuse the log already fetched at the top of refreshDashboard.
   const recentCloses = log
     .filter((e) => e.verdict === "unproductive" || e.kind === "blocklist" || e.kind === "user_flag")
     .slice(-8).reverse();
