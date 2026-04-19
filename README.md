@@ -1,44 +1,51 @@
-# Focus Closer
-
-A Chrome extension that auto-closes distracting tabs before you can doomscroll them.
-
-Built because I was watching 48 YouTube videos a day.
+<div align="center">
+  <img src="icons/icon-128.png" width="96" alt="Focus Closer" />
+  <h1>Focus Closer</h1>
+  <p><strong>The AI bouncer for your browser.</strong></p>
+  <p>A Chrome extension that auto-closes distracting tabs before you can scroll them.<br>Claude-powered YouTube classifier. Path-level blocklist. 5-second false-positive recovery.</p>
+  <p>
+    <a href="https://27dmao.github.io/focus-closer/">Landing page</a> ·
+    <a href="#install">Install</a> ·
+    <a href="#architecture">Architecture</a> ·
+    <a href="#roadmap">Roadmap</a>
+  </p>
+</div>
 
 ---
 
 ## The problem
 
-I queried my own Chrome history. Last 90 days:
+I queried my own Chrome history. Last 90 days, top visited domains:
 
-| Domain | Visits |
-|---|---:|
-| linkedin.com | 6,283 |
-| youtube.com | 4,354 |
-| instagram.com | 3,760 |
-| x.com | 2,974 |
-| facebook.com | 889 |
+| Domain | What it is | Visits |
+|---|---|---:|
+| linkedin.com | Sales outreach + occasional doomscroll | 6,283 |
+| youtube.com | Lectures, or Minecraft. Depends on the day. | 4,354 |
+| instagram.com | Zero defense of this one. | 3,760 |
+| x.com | Startup Twitter. Mostly. | 2,974 |
+| facebook.com | Legacy habit. | 889 |
 
-LinkedIn is (mostly) work. The rest is drift. YouTube is the hard one — the same URL pattern contains both Khan Academy lectures and Minecraft speedruns, so a blunt domain block doesn't work.
+Instagram and X are always distractions — a dumb domain block handles them. LinkedIn is mostly work. **YouTube is the hard one** — the same URL pattern (`/watch`) holds both Khan Academy and Minecraft. That's where an LLM earns its keep.
 
 ## The approach
 
 Two independent subsystems behind one shared recovery UX:
 
-1. **Domain blocklist closer** — instant close on always-distracting sites. No LLM, no latency, no cost. Supports path-level entries (`linkedin.com/feed` blocks the feed but leaves `/messaging` alone).
-2. **YouTube content classifier** — reads video metadata, runs a local rule pass, falls back to Claude Haiku 4.5 on ambiguous cases. Closes the tab if unproductive.
+1. **Domain blocklist closer** — instant close on always-distracting sites. No LLM, no latency, no cost. Path-level entries (`linkedin.com/feed` blocks the feed but leaves `/messaging` alone).
+2. **YouTube content classifier** — reads video metadata, runs local rules first, falls back to Claude Haiku 4.5 on ambiguous cases. Closes the tab if unproductive.
 
-Both feed a 5-second popup on the next active tab with a **Reopen** button (false positive) or per-domain **Unblock** options. ESC to dismiss.
+Both feed a 5-second popup on your next active tab with contextual actions: **Reopen** (false positive), **Always allow/block this channel**, per-domain **Unblock** options. ESC to dismiss.
 
 ## Architecture
 
 ```
           ┌─────────────────┐
-  nav →   │  Service worker │  ← popup actions
-          │   (coordinator)  │
+  nav →   │  Service worker │  ← popup actions (reopen, unblock, always allow)
+          │   (coordinator) │
           └────────┬────────┘
                    │
        ┌───────────┴───────────┐
-       │                       │
+       ▼                       ▼
    YouTube?              Domain on blocklist?
        │                       │
        ▼                       ▼
@@ -48,14 +55,14 @@ Both feed a 5-second popup on the next active tab with a **Reopen** button (fals
   └─────────┘           └──────┬───────┘
        │                       │
        ▼                       ▼
-  ┌────────────────────────────────┐
-  │  Classify:                     │
-  │  1. User override              │
-  │  2. Cache (30d)                │
-  │  3. Local rules (channels + keywords)
-  │  4. Claude Haiku 4.5           │
-  │  5. Fail-open                  │
-  └────────────┬───────────────────┘
+  ┌──────────────────────────────────────┐
+  │  Classify waterfall:                 │
+  │  1. User override (always allow/block│
+  │  2. Cache (30d)                      │
+  │  3. Local rules (channels + keywords)│
+  │  4. Claude Haiku 4.5                 │
+  │  5. Fail-open on error               │
+  └────────────┬─────────────────────────┘
                │
           unproductive?
                │
@@ -64,87 +71,120 @@ Both feed a 5-second popup on the next active tab with a **Reopen** button (fals
      on the next active tab
 ```
 
+## Features
+
+| | |
+|---|---|
+| **Claude classifier** | Reads title, channel, description, tags. Returns productive/unproductive with reason. ~500ms, ~$0.0005 per call. |
+| **Focus Sessions** | Timer-based deep work mode. 25/50/90-min presets. During a session, classifier runs stricter and cache bypasses. End-of-session toast reports how many distractions got blocked. |
+| **AI Weekly Insights** | Claude reads your last 7 days of closes and writes a personalized brief: pattern observed, biggest attention leak, one thing to try. ~$0.001 per generation. |
+| **Attention score** | Single number, tracked daily. Trends over time. Progress has to be legible for behavior change to work. |
+| **5-second recovery popup** | Reopen (false positive) button + "Always allow this channel" to teach the system forever. ESC to dismiss. Hover pauses timer. |
+| **Path-level blocklist** | `linkedin.com/feed` blocked, `/messaging` untouched. Match is suffix-based on host, prefix-based on path with segment boundary. |
+| **Work-whitelist** | Gmail, Calendar, Claude, ChatGPT, Apollo, HeyReach, Symbal, Ashby, Upwork can never be blocked — even if you try. |
+| **Pause / panic button** | 1h / today / indefinite from popup, shortcut, or dashboard. Real products have escape valves. |
+| `Ctrl+Shift+X` | Mark current video/tab as distracting. Remembers the videoId so it closes on re-visit. |
+| `Ctrl+Shift+P` | Pause/resume the extension for an hour. |
+| **LinkedIn badge hiding** | CSS rules that hide every notification badge except Messaging — because the only notification I want is when someone actually messages me. |
+| **Commitment device** | Pairs with a macOS Chrome managed policy that disables Guest mode, Incognito, and new-profile creation — `sudo` to install and remove. |
+| **Onboarding wizard** | First-run walks through API key, strictness level, and a test-it-now checklist. |
+
 ## Cost
 
-Claude Haiku 4.5 only runs on ambiguous videos (about half after cache + local rules).
+~$0.30/month at typical use. Local rules and cache cover most of the load; Claude Haiku only runs on ambiguous videos.
 
-- ~300 input + 50 output tokens per ambiguous video
-- At ~50 YouTube visits/day × 50% LLM hit rate = **~$0.30/month**
-- Latency: 300–800ms. Hidden inside the metadata-extraction wait.
+```
+~50 YT visits/day × 50% LLM hit rate × $0.0005/call
+≈ $0.01/day ≈ $0.30/month
+```
+
+Blocklist closes are free. Cache hits are free. Only ambiguous YouTube videos hit the API.
 
 ## Design decisions
 
-A few non-obvious choices worth pointing out:
+Four non-obvious calls worth pointing out:
 
-- **Strict-by-default with 5-second recovery, not tentative classifier.** Asking "are you sure?" before every close is exhausting and trains you to dismiss modals. Closing immediately with a reopen button trains the system from real signal — if you never reopen, it's working.
-- **Two subsystems, not one generic classifier.** LLM-classifying every tab is expensive, slow, and risks misclassifying work tools (Gmail, Calendar, internal dashboards). A domain blocklist handles the obvious 95%; the LLM handles only the ambiguous content at `youtube.com/watch`.
-- **Path-level blocklist.** `linkedin.com/feed` ≠ `linkedin.com/messaging`. One is a doomscroll surface, the other is how leads reach out. Match is prefix with segment boundary (so `/feed` doesn't match `/feedback`).
-- **Self-teaching loop.** Every popup offers "Always allow this channel" / "Always block this channel" — one click teaches the classifier forever. The channel whitelist becomes your personal model of "what's actually productive for me."
-- **Fail-open, not fail-closed.** If the Claude API goes down, the tab stays open. Never silently break browsing — the user should never wonder why a legitimate page vanished.
-- **Commitment device layer.** The extension alone is trivially bypassed (Guest mode, Incognito, new profile). For real enforcement, pair with a Chrome managed policy at `/Library/Managed Preferences/com.google.Chrome.plist` that disables Guest/Incognito/new-profile creation. Requires `sudo` to install and to remove — friction is the point.
+**Strict-by-default with instant recovery, not "are you sure?" prompts.** Asking before every close is exhausting and trains you to dismiss the modal. Closing immediately with a visible Reopen button means only actual false positives cost you 2 seconds.
 
-## Features
+**Two subsystems, not one generic classifier.** LLM-classifying every tab is expensive, slow, and risks misclassifying work tools. A cheap domain blocklist handles the obvious 95%; the LLM handles only the ambiguous content at `youtube.com/watch`.
 
-- **Strict YouTube classifier** (local rules → Claude Haiku fallback → fail-open)
-- **Path-level blocklist** with per-entry temporary overrides (60s / 30min / today / permanent)
-- **Work-whitelist** — Google Workspace, Claude, Apollo, HeyReach, Symbal, Ashby, etc. can never be blocked even if you try
-- **`Ctrl+Shift+X`** — mark current tab as distracting (closes + remembers so it closes on re-visit)
-- **`Ctrl+Shift+P`** — pause the extension for an hour (or "Pause until tomorrow" from the dashboard)
-- **Dashboard** — time saved, tabs closed per day, source breakdown, searchable decision log
-- **Channel learning** — one-click "always allow" / "always block" from the close popup
-- **LinkedIn badge hiding** — CSS rules that hide every notification badge except Messaging
-- **Cross-device sync** — API key, blocklist, channel rules sync via `chrome.storage.sync`
+**Path-level blocklist.** `linkedin.com/feed` ≠ `linkedin.com/messaging`. One is a doomscroll surface, the other is how customers reach out. Granularity without fiddling.
 
-## Stats
+**Self-teaching loop.** Every close popup offers one-click "Always allow this channel" / "Always block this channel." The channel whitelist becomes your personal model of what's productive *for you*. AI Weekly Insights surface patterns you'd miss on your own.
 
-_Run the thing for a week, paste your numbers here. The dashboard tab shows these live at any time._
+**Fail-open, not fail-closed.** If the Claude API goes down, the tab stays. Never silently break browsing — users should never wonder why a legitimate page vanished.
 
-```
-Last 7 days:
-  — 94 tabs closed
-  — 47 minutes of YouTube drift prevented
-  — 3 false positives (recovered via Reopen)
-  — Breakdown: 58 blocklist / 28 Claude / 5 local rule / 3 user flag
-```
-
-## Install (dev)
+## Install
 
 ```bash
 # 1. Clone
-git clone https://github.com/<you>/focus-closer
+git clone https://github.com/27dmao/focus-closer
 cd focus-closer
 
 # 2. Chrome → chrome://extensions → Developer mode → Load unpacked
 #    Point it at this directory.
 
-# 3. Click the extension icon → Rules tab → paste your Anthropic API key
-#    (from console.anthropic.com → API keys)
+# 3. Onboarding wizard prompts you for:
+#    - Anthropic API key (get one at console.anthropic.com)
+#    - Strictness level (strict/balanced)
 ```
 
-Cost reminder: new API accounts require a one-time credit purchase before programmatic access unlocks, even if you have signup credit — the signup credit is Workbench-only until you buy.
+New API accounts require a one-time credit purchase before programmatic access unlocks. $5 covers ~16 months at typical use.
 
-## Limitations
+### Commitment device (macOS)
 
-Things I know are weak, in order of severity:
+The extension alone is bypassable — Guest mode, Incognito, or a fresh Chrome profile all defeat it. For real enforcement, install this Chrome managed policy:
 
-- **YouTube DOM churn.** I parse `ytInitialPlayerResponse` as the primary source (more stable), with DOM selectors as fallback. Both will break eventually. Needs maintenance every few months.
-- **LinkedIn class names churn faster.** The badge-hiding CSS uses `href`-based selectors for nav items as a hedge, but new LinkedIn redesigns still break it periodically.
-- **No mobile.** Chrome extensions don't run on mobile Chrome. The Mac policy doesn't apply on phones either. Mobile distraction is still on you.
-- **Single-tab edge case.** If you have only one tab open and it gets closed, the window closes — nowhere to inject the popup. Falls back to a native OS notification. Rare.
-- **Classifier is as biased as the prompt.** The prompt treats "vlogs" and "reactions" as unproductive by default. If that's too aggressive for you, it's one prompt-edit away.
+```bash
+sudo tee "/Library/Managed Preferences/com.google.Chrome.plist" > /dev/null <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>BrowserGuestModeEnabled</key><false/>
+    <key>IncognitoModeAvailability</key><integer>1</integer>
+    <key>BrowserAddPersonEnabled</key><false/>
+</dict>
+</plist>
+PLIST
+```
+
+Then fully quit Chrome (`Cmd+Q` every window) and relaunch. Verify at `chrome://policy`. Requires `sudo` to install *and to remove* — the friction is the point.
+
+## Roadmap
+
+What this could become:
+
+- **Next**: Sync across devices via `chrome.storage.sync` (already partially there). Firefox + Edge port (MV3 is cross-browser).
+- **Later**: Team tier with shared blocklists and admin-pushed focus policies. Mobile companion with iOS Screen Time integration. Calendar integration — auto-start Focus Sessions during meetings. Opt-in accountability digest to a chosen contact.
+
+Attention is becoming the scarcest resource in the knowledge economy. There's a product wedge here for individuals → teams → enterprise.
 
 ## Stack
 
-Zero dependencies. No build step. Pure vanilla JS + Manifest V3.
+Zero dependencies. No build step. No server. Pure vanilla JS + Manifest V3.
 
-- `service-worker.js` — coordinator, navigation events, Claude calls, tab close, popup injection
-- `content/youtube.js` — SPA route detection, metadata extraction with `ytInitialPlayerResponse` + DOM fallback
-- `classifier/rules.js` — local pre-classifier (channel + title keywords)
-- `classifier/claude.js` — Claude Haiku 4.5 wrapper with strict-leaning prompt
-- `lib/storage.js` — `chrome.storage` wrappers, override expiry, path match logic
-- `lib/logger.js` — decision log ring buffer + stats aggregation
-- `options/` — dashboard UI
+```
+manifest.json        LICENSE           README.md
+service-worker.js    (coordinator: nav events, Claude calls, tab close, popup inject, sessions, insights)
+icons/               icon-{16,32,48,128}.png + icon.svg
+classifier/          claude.js · rules.js · insights.js
+content/             youtube.js · linkedin-hide-badges.css
+lib/                 storage.js (sync/local, overrides, sessions, pause) · logger.js (log + stats)
+options/             options.html · options.css · options.js (tabbed dashboard)
+docs/                index.html (GitHub Pages landing)
+```
+
+## Limitations
+
+Real things, in order of severity:
+
+- **YouTube DOM churn.** Primary extraction parses `ytInitialPlayerResponse` from page source (stable); DOM selectors are fallback. Both break eventually. Needs tuning every few months.
+- **LinkedIn class names churn faster.** Badge-hiding CSS uses `href`-based nav selectors as a hedge. Still needs occasional adjustment.
+- **No mobile.** Chrome extensions don't run on mobile Chrome. Mobile distraction is still on you.
+- **Single-tab edge case.** If your only tab is closed, the window closes — no popup. Falls back to native OS notification. Rare in practice.
+- **Classifier reflects its prompt.** Vlogs and reactions default to unproductive. If that's too aggressive for you, it's one prompt edit away in `classifier/claude.js`.
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).

@@ -38,6 +38,17 @@ function dayLabel(offset) {
   return d.toLocaleDateString(undefined, { weekday: "short" });
 }
 
+// Attention score: log-scale on recent weekly closes, weighted by seconds saved.
+// Returns 0-100 integer, meant to trend.
+function computeAttentionScore(stats) {
+  const closes = stats.closedLast7 || 0;
+  const seconds = stats.secondsSavedLast7 || 0;
+  if (closes === 0 && seconds === 0) return null;
+  const closeComponent = Math.min(50, Math.log(closes + 1) * 15);
+  const timeComponent = Math.min(50, Math.log((seconds / 60) + 1) * 9);
+  return Math.round(closeComponent + timeComponent);
+}
+
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
@@ -46,13 +57,18 @@ document.querySelectorAll(".tab").forEach((tab) => {
     document.querySelector(`.panel[data-panel="${tab.dataset.tab}"]`).classList.remove("hidden");
     if (tab.dataset.tab === "dashboard") refreshDashboard();
     if (tab.dataset.tab === "log") refreshLog();
+    if (tab.dataset.tab === "insights") refreshInsights();
+    if (tab.dataset.tab === "sessions") refreshStatusBar();
   });
 });
 
 let currentLog = [];
 
 async function refreshStatusBar() {
-  const { pause } = await send("get_dashboard");
+  const data = await send("get_dashboard");
+  const pause = data.pause;
+  const session = data.session;
+
   const dot = $("statusDot");
   const text = $("statusText");
   const resumeBtn = $("resumeBtn");
@@ -71,15 +87,32 @@ async function refreshStatusBar() {
     pauseToday.classList.add("hidden");
   } else {
     dot.classList.remove("paused");
-    text.textContent = "Active";
+    text.textContent = session?.active ? "Focus Session" : "Active";
     resumeBtn.classList.add("hidden");
     pauseBtn.classList.remove("hidden");
     pauseToday.classList.remove("hidden");
   }
+
+  const banner = $("sessionBanner");
+  if (session?.active) {
+    banner.classList.remove("hidden");
+    const minLeft = Math.max(1, Math.round((session.endsAt - Date.now()) / 60000));
+    $("sessionSub").textContent = `${session.task} · ${minLeft}m left · ${session.closesDuringSession || 0} blocked`;
+  } else {
+    banner.classList.add("hidden");
+  }
 }
 
 async function refreshDashboard() {
-  const { stats, installedAt } = await send("get_dashboard");
+  const data = await send("get_dashboard");
+  const stats = data.stats;
+
+  const score = computeAttentionScore(stats);
+  $("attentionScore").textContent = score == null ? "—" : score;
+  const daysSinceInstall = Math.max(1, Math.round((Date.now() - data.installedAt) / (24 * 60 * 60 * 1000)));
+  $("attentionSub").textContent = score == null
+    ? "Score appears after you rack up a few closes."
+    : `Based on last 7 days · ${stats.closedLast7} closes · ${formatDuration(stats.secondsSavedLast7)} reclaimed`;
 
   $("statSaved7d").textContent = formatDuration(stats.secondsSavedLast7);
   $("statSaved7dSub").textContent = `${formatDuration(stats.secondsSavedToday)} today`;
@@ -91,7 +124,6 @@ async function refreshDashboard() {
   $("statTodaySub").textContent = `${formatDuration(stats.secondsSavedToday)} saved`;
 
   $("statAll").textContent = stats.totalClosed;
-  const daysSinceInstall = Math.max(1, Math.round((Date.now() - installedAt) / (24 * 60 * 60 * 1000)));
   $("statAllSub").textContent = `${formatDuration(stats.totalSecondsSaved)} over ${daysSinceInstall}d`;
 
   const chart = $("chart7d");
@@ -127,6 +159,7 @@ async function refreshDashboard() {
     ["cache", "Cache"],
     ["user_flag", "User flag"],
     ["user_block", "User block"],
+    ["session_boost", "Session boost"],
     ["override", "Override"]
   ];
   const totalBySource = Math.max(1, Object.values(sources).reduce((a, b) => a + b, 0));
@@ -228,6 +261,52 @@ function renderLog() {
   }
 }
 
+function renderInsights(insights) {
+  const el = $("insightsContent");
+  const meta = $("insightsMeta");
+  if (insights?.error) {
+    el.innerHTML = `<div class="error">${insights.reason || insights.error}</div>`;
+    meta.textContent = "";
+    return;
+  }
+  if (!insights?.text) {
+    el.innerHTML = `<div class="empty">No insights yet — click "Generate fresh insights."</div>`;
+    meta.textContent = "";
+    return;
+  }
+  // Format the structured response
+  const text = insights.text;
+  const formatted = text
+    .replace(/PATTERN OBSERVED:/g, `<span class="section-label">Pattern observed</span>\n`)
+    .replace(/BIGGEST ATTENTION LEAK:/g, `<span class="section-label">Biggest attention leak</span>\n`)
+    .replace(/ONE THING TO TRY:/g, `<span class="section-label">One thing to try</span>\n`);
+  el.innerHTML = formatted;
+  meta.textContent = `Generated ${formatRelativeTime(insights.generatedAt)}`;
+}
+
+async function refreshInsights() {
+  const el = $("insightsContent");
+  el.innerHTML = `<div class="empty">Loading cached insights...</div>`;
+  const data = await send("get_dashboard");
+  if (data.insights) {
+    renderInsights(data.insights);
+  } else {
+    el.innerHTML = `<div class="empty">No insights generated yet. Click "Generate fresh insights" below — costs about $0.001.</div>`;
+  }
+}
+
+async function generateInsights() {
+  const el = $("insightsContent");
+  const btn = $("insightsGenerate");
+  btn.disabled = true;
+  btn.textContent = "Generating...";
+  el.innerHTML = `<div class="empty">Asking Claude...</div>`;
+  const res = await send("get_insights", { force: true });
+  renderInsights(res.insights);
+  btn.disabled = false;
+  btn.textContent = "Generate fresh insights";
+}
+
 async function loadRules() {
   const { settings } = await send("get_dashboard");
   $("apiKey").value = settings.apiKey || "";
@@ -259,6 +338,57 @@ async function saveRules() {
   setTimeout(() => ($("saveStatus").textContent = ""), 2500);
 }
 
+// Onboarding
+async function maybeShowOnboarding() {
+  const { settings } = await send("get_dashboard");
+  if (!settings.onboardingComplete) {
+    $("onboarding").classList.remove("hidden");
+  }
+}
+function showStep(n) {
+  document.querySelectorAll(".step").forEach((s) => {
+    s.classList.toggle("active", parseInt(s.dataset.step, 10) === n);
+  });
+}
+$("onboardNext1").addEventListener("click", async () => {
+  const key = $("onboardApiKey").value.trim();
+  if (key) await send("set_settings", { partial: { apiKey: key } });
+  showStep(2);
+});
+$("onboardSkip1").addEventListener("click", () => showStep(2));
+$("onboardBack2").addEventListener("click", () => showStep(1));
+$("onboardNext2").addEventListener("click", async () => {
+  const strict = document.querySelector('input[name="strict"]:checked').value;
+  await send("set_settings", { partial: { strictLevel: strict } });
+  showStep(3);
+});
+$("onboardDone").addEventListener("click", async () => {
+  await send("set_settings", { partial: { onboardingComplete: true } });
+  $("onboarding").classList.add("hidden");
+  loadRules();
+});
+
+// Sessions
+$("sessionStartBtn").addEventListener("click", async () => {
+  const task = $("sessionTask").value.trim() || "Deep work";
+  const checked = document.querySelector('input[name="dur"]:checked');
+  let durationMs = parseInt(checked.value, 10);
+  if (checked.value === "custom") {
+    const min = parseInt($("sessionCustomMin").value, 10);
+    if (!min || min < 5) { alert("Enter a duration (≥5 min)."); return; }
+    durationMs = min * 60 * 1000;
+  }
+  await send("start_session", { durationMs, task, strictBoost: true });
+  $("sessionTask").value = "";
+  refreshStatusBar();
+  document.querySelector('.tab[data-tab="dashboard"]').click();
+});
+$("sessionEndBtn").addEventListener("click", async () => {
+  await send("end_session");
+  refreshStatusBar();
+  refreshDashboard();
+});
+
 $("save").addEventListener("click", saveRules);
 $("clearLog").addEventListener("click", async () => {
   if (!confirm("Clear the entire decision log?")) return;
@@ -271,6 +401,11 @@ $("clearCache").addEventListener("click", async () => {
   if (!confirm("Clear the video verdict cache? Next visits will re-classify.")) return;
   const res = await send("clear_video_cache");
   alert(`Removed ${res.removed} cached verdicts.`);
+});
+$("replayOnboarding").addEventListener("click", async () => {
+  await send("set_settings", { partial: { onboardingComplete: false } });
+  showStep(1);
+  $("onboarding").classList.remove("hidden");
 });
 $("pauseBtn").addEventListener("click", async () => {
   await send("set_pause", { durationMs: 60 * 60 * 1000, reason: "manual" });
@@ -287,6 +422,7 @@ $("resumeBtn").addEventListener("click", async () => {
   await send("set_pause", { durationMs: 0 });
   refreshStatusBar();
 });
+$("insightsGenerate").addEventListener("click", generateInsights);
 ["logSearch", "logVerdict", "logKind"].forEach((id) => {
   $(id).addEventListener("input", renderLog);
   $(id).addEventListener("change", renderLog);
@@ -295,4 +431,5 @@ $("resumeBtn").addEventListener("click", async () => {
 loadRules();
 refreshStatusBar();
 refreshDashboard();
-setInterval(refreshStatusBar, 30000);
+maybeShowOnboarding();
+setInterval(refreshStatusBar, 15000);

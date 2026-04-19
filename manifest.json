@@ -1,14 +1,21 @@
 {
   "manifest_version": 3,
   "name": "Focus Closer",
-  "version": "0.1.0",
-  "description": "Auto-closes distracting YouTube videos and blocklist domains. 5-second recovery popup for false positives.",
+  "version": "0.2.0",
+  "description": "The AI that closes distracting tabs before you can scroll them. Claude-powered, strict-leaning, with a 5-second recovery loop.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "permissions": [
     "tabs",
     "storage",
     "webNavigation",
     "notifications",
-    "scripting"
+    "scripting",
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -36,7 +43,13 @@
   },
   "action": {
     "default_title": "Focus Closer",
-    "default_popup": "options/options.html"
+    "default_popup": "options/options.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
   },
   "commands": {
     "mark-distracting": {

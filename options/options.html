@@ -7,12 +7,57 @@
 </head>
 <body>
 
+<div id="onboarding" class="onboarding hidden">
+  <div class="onboarding-card">
+    <div class="step active" data-step="1">
+      <div class="step-label">Step 1 of 3</div>
+      <h2>Welcome to Focus Closer.</h2>
+      <p class="step-body">This extension closes distracting tabs before you can scroll them. YouTube videos get a Claude-powered content verdict. Domains on your blocklist instantly close. False positives recover in 5 seconds.</p>
+      <p class="step-body">To classify YouTube, it needs an <b>Anthropic API key</b>. ~$0.30/month at typical use.</p>
+      <input id="onboardApiKey" type="password" placeholder="sk-ant-..." autocomplete="off" />
+      <div class="step-actions">
+        <button class="btn-ghost" id="onboardSkip1">Skip for now</button>
+        <button class="btn-primary" id="onboardNext1">Continue</button>
+      </div>
+    </div>
+
+    <div class="step" data-step="2">
+      <div class="step-label">Step 2 of 3</div>
+      <h2>Pick your strictness.</h2>
+      <p class="step-body">Strict = ambiguous defaults to close. Balanced = ambiguous defaults to keep. Both have the 5-second recovery popup either way.</p>
+      <div class="strict-options">
+        <label class="strict-opt"><input type="radio" name="strict" value="strict" checked><div><div class="strict-title">Strict</div><div class="strict-sub">Recommended. You want friction. Borderline content closes.</div></div></label>
+        <label class="strict-opt"><input type="radio" name="strict" value="balanced"><div><div class="strict-title">Balanced</div><div class="strict-sub">Only high-confidence unproductive closes. Less aggressive.</div></div></label>
+      </div>
+      <div class="step-actions">
+        <button class="btn-ghost" id="onboardBack2">Back</button>
+        <button class="btn-primary" id="onboardNext2">Continue</button>
+      </div>
+    </div>
+
+    <div class="step" data-step="3">
+      <div class="step-label">Step 3 of 3</div>
+      <h2>You're set.</h2>
+      <p class="step-body">Try it now:</p>
+      <ol class="try-list">
+        <li>Visit a YouTube video you know is distracting — it should close within a second.</li>
+        <li>On any blocklist domain (instagram.com, x.com, linkedin.com/feed), the tab closes instantly.</li>
+        <li>Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd> to flag a video the classifier missed.</li>
+        <li>Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd> to pause the extension for an hour.</li>
+      </ol>
+      <div class="step-actions">
+        <button class="btn-primary" id="onboardDone">Start focusing</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <header class="topbar">
   <div class="brand">
-    <div class="logo">FC</div>
+    <div class="logo"><img src="../icons/icon-128.png" alt="" /></div>
     <div>
       <div class="brand-title">Focus Closer</div>
-      <div class="brand-sub">Auto-closes distractions. Recovers false positives in 5 seconds.</div>
+      <div class="brand-sub">The AI bouncer for your browser.</div>
     </div>
   </div>
   <div class="status" id="statusArea">
@@ -27,6 +72,8 @@
 
 <nav class="tabs">
   <button class="tab active" data-tab="dashboard">Dashboard</button>
+  <button class="tab" data-tab="sessions">Focus sessions</button>
+  <button class="tab" data-tab="insights">Insights</button>
   <button class="tab" data-tab="rules">Rules</button>
   <button class="tab" data-tab="log">Log</button>
   <button class="tab" data-tab="help">Help</button>
@@ -35,14 +82,32 @@
 <main>
 
 <section class="panel" data-panel="dashboard">
+  <div class="hero-score">
+    <div class="score-block">
+      <div class="score-label">Attention score</div>
+      <div class="score-value" id="attentionScore">—</div>
+      <div class="score-sub" id="attentionSub">Higher is better — tabs closed vs. wasted time</div>
+    </div>
+    <div class="score-right">
+      <div id="sessionBanner" class="session-banner hidden">
+        <div class="session-icon"></div>
+        <div>
+          <div class="session-title">Focus Session active</div>
+          <div class="session-sub" id="sessionSub"></div>
+        </div>
+        <button class="btn-ghost" id="sessionEndBtn">End</button>
+      </div>
+    </div>
+  </div>
+
   <div class="stats-grid">
     <div class="stat-card">
-      <div class="stat-label">Time saved (last 7d)</div>
+      <div class="stat-label">Time saved (7d)</div>
       <div class="stat-value" id="statSaved7d">—</div>
       <div class="stat-sub" id="statSaved7dSub"></div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">Tabs closed (last 7d)</div>
+      <div class="stat-label">Tabs closed (7d)</div>
       <div class="stat-value" id="statClosed7d">—</div>
       <div class="stat-sub" id="statClosed7dSub"></div>
     </div>
@@ -70,7 +135,7 @@
     <div class="card">
       <div class="card-header">
         <h3>Why tabs closed</h3>
-        <span class="card-sub">source breakdown (all time)</span>
+        <span class="card-sub">source breakdown</span>
       </div>
       <div id="sourceBreakdown" class="breakdown"></div>
     </div>
@@ -84,6 +149,51 @@
         <div class="empty">Loading...</div>
       </div>
     </div>
+  </div>
+</section>
+
+<section class="panel hidden" data-panel="sessions">
+  <div class="card session-card">
+    <h2>Start a focus session</h2>
+    <p class="session-lede">Declare what you're working on. During the session, the classifier runs stricter — borderline "productive" YouTube videos default to close instead of keep. Cache is bypassed so everything re-classifies against the tighter bar.</p>
+    <div class="session-fields">
+      <label>What are you working on?</label>
+      <input id="sessionTask" type="text" placeholder="e.g., Finish investor update" />
+      <div class="duration-grid">
+        <label class="dur"><input type="radio" name="dur" value="1500000" checked><span>25 min</span><small>Pomodoro</small></label>
+        <label class="dur"><input type="radio" name="dur" value="3000000"><span>50 min</span><small>Deep work</small></label>
+        <label class="dur"><input type="radio" name="dur" value="5400000"><span>90 min</span><small>Ultradian</small></label>
+        <label class="dur"><input type="radio" name="dur" value="custom"><span>Custom</span><small><input id="sessionCustomMin" type="number" min="5" max="240" placeholder="min" style="width:60px;"/></small></label>
+      </div>
+      <button class="btn-primary btn-lg" id="sessionStartBtn">Start session</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h3>How it differs from always-on mode</h3></div>
+    <ul class="dots">
+      <li><b>Strict boost.</b> Low-confidence "productive" verdicts default to close during a session. Normal mode keeps them.</li>
+      <li><b>Cache bypass.</b> Every video re-classifies fresh — so a previously-productive video gets the tighter bar applied too.</li>
+      <li><b>Completion ritual.</b> End-of-session toast tells you how many distractions got blocked — small dopamine reward for finishing.</li>
+      <li><b>Log tag.</b> Closes during a session are tagged so the Insights tab can show session-vs-ambient patterns.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="panel hidden" data-panel="insights">
+  <div class="card insights-card">
+    <div class="card-header">
+      <h3>AI weekly insights</h3>
+      <span class="card-sub">Claude analyzes your last 7 days of data</span>
+    </div>
+    <div id="insightsContent" class="insights-content">
+      <div class="empty">Loading...</div>
+    </div>
+    <div class="btn-row" style="margin-top:16px;">
+      <button class="btn-primary" id="insightsGenerate">Generate fresh insights</button>
+      <span id="insightsMeta" class="save-status"></span>
+    </div>
+    <div class="help">Costs ~$0.001 per generation. Results cache for 1 hour.</div>
   </div>
 </section>
 
@@ -109,7 +219,7 @@
     <div class="help">
       Domain: <code>instagram.com</code> blocks the whole domain.<br>
       Domain + path: <code>linkedin.com/feed</code> blocks <code>/feed</code> and <code>/feed/*</code> but leaves other paths alone.<br>
-      Match is suffix-based on host, prefix-based on path with segment boundary (so <code>/feed</code> ≠ <code>/feedback</code>).
+      Match is suffix-based on host, prefix-based on path with segment boundary.
     </div>
   </div>
 
@@ -140,8 +250,8 @@
     <div class="btn-row">
       <button id="clearCache" class="btn-ghost">Clear verdict cache</button>
       <button id="clearLog" class="btn-ghost">Clear decision log</button>
+      <button id="replayOnboarding" class="btn-ghost">Replay onboarding</button>
     </div>
-    <div class="help">Verdict cache persists Claude classifications per video so re-visits are instant. Clear it to force re-classification.</div>
   </div>
 </section>
 
@@ -198,7 +308,7 @@
 
   <div class="card">
     <div class="card-header"><h3>Commitment device</h3></div>
-    <div class="help">The extension alone is easy to bypass — Guest mode, Incognito, or a fresh Chrome profile all defeat it. For real enforcement, pair with a Chrome managed policy that disables Guest / Incognito / new profiles. On macOS that lives at <code>/Library/Managed Preferences/com.google.Chrome.plist</code> and requires <code>sudo</code> to install or remove.</div>
+    <div class="help">The extension alone is bypassable — Guest mode, Incognito, or a fresh Chrome profile all defeat it. For real enforcement, pair with a Chrome managed policy that disables Guest / Incognito / new profiles. On macOS that lives at <code>/Library/Managed Preferences/com.google.Chrome.plist</code> and requires <code>sudo</code> to install or remove. See the README for the policy file.</div>
   </div>
 </section>
 

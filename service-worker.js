@@ -16,11 +16,18 @@ import {
   parseBlocklistEntry,
   getPauseState,
   setPauseState,
-  getOrInitInstallMeta
+  getOrInitInstallMeta,
+  getSessionState,
+  startSession,
+  endSession,
+  incrementSessionCloseCount,
+  getInsightsCache,
+  setInsightsCache
 } from "./lib/storage.js";
 import { logDecision, getStats, getLog, clearLog } from "./lib/logger.js";
 import { classifyLocally } from "./classifier/rules.js";
 import { classifyWithClaude } from "./classifier/claude.js";
+import { generateInsights } from "./classifier/insights.js";
 
 chrome.runtime.onInstalled.addListener(() => { getOrInitInstallMeta(); });
 chrome.runtime.onStartup.addListener(() => { getOrInitInstallMeta(); });
@@ -65,7 +72,7 @@ function findMatchingBlocklistEntry(hostname, pathname, blocklist, toggles) {
   return null;
 }
 
-async function classifyVideo(meta, settings) {
+async function classifyVideo(meta, settings, sessionActive) {
   if (await isVideoUserBlocked(meta.videoId)) {
     return { verdict: "unproductive", source: "user_block", reason: "you flagged this video as distracting", confidence: 1 };
   }
@@ -74,7 +81,7 @@ async function classifyVideo(meta, settings) {
   }
 
   const cached = await getVerdictFromCache(meta.videoId);
-  if (cached) return { ...cached, source: cached.source || "cache", cached: true };
+  if (cached && !sessionActive) return { ...cached, source: cached.source || "cache", cached: true };
 
   const local = classifyLocally(meta, settings);
   if (local && local.confidence >= 0.85) {
@@ -84,6 +91,10 @@ async function classifyVideo(meta, settings) {
 
   const remote = await classifyWithClaude(meta, settings);
   if (remote.verdict) {
+    if (sessionActive && remote.verdict === "productive" && remote.confidence < 0.8) {
+      await setVerdictInCache(meta.videoId, remote);
+      return { ...remote, verdict: "unproductive", reason: `low-confidence "productive" (${remote.reason}) — during Focus Session, borderline defaults to close`, source: "session_boost" };
+    }
     await setVerdictInCache(meta.videoId, remote);
     return remote;
   }
@@ -289,16 +300,62 @@ async function closeAndNotify(tabId, detail) {
   } catch (e) {
     console.warn("[focus-closer] tab close failed", e);
   }
+  await incrementSessionCloseCount();
   await showPopup(tabId, detail);
 }
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name !== "session_end") return;
+  const s = await endSession();
+  if (!s) return;
+  const duration = Math.round((s.endsAt - s.startedAt) / 60000);
+  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  const tabId = tabs[0]?.id;
+  const message = `${s.task} • ${duration} min • ${s.closesDuringSession || 0} distractions blocked`;
+  try {
+    await chrome.notifications.create({
+      type: "basic",
+      iconUrl: chrome.runtime.getURL("icons/icon-128.png"),
+      title: "Focus session complete",
+      message
+    });
+  } catch {}
+  if (tabId) {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        world: "ISOLATED",
+        func: (detail) => {
+          const prev = document.getElementById("__focus_closer_session_toast__");
+          if (prev) prev.remove();
+          const host = document.createElement("div");
+          host.id = "__focus_closer_session_toast__";
+          host.style.cssText = "position:fixed;bottom:20px;right:20px;z-index:2147483647;font:13px/1.45 -apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;";
+          host.innerHTML = `
+            <div style="background:#1e1e1e;color:#fff;padding:16px 18px;border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,0.4);border-left:4px solid #3ecf8e;min-width:320px;max-width:420px;">
+              <div style="font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;opacity:0.85;margin-bottom:6px;">Focus Session Complete</div>
+              <div style="font-weight:600;margin-bottom:4px;">${detail.task}</div>
+              <div style="opacity:0.8;font-size:12px;">${detail.duration} min · ${detail.closes} distractions blocked</div>
+              <div style="opacity:0.5;font-size:10px;margin-top:10px;">Click to dismiss</div>
+            </div>`;
+          host.addEventListener("click", () => host.remove());
+          document.documentElement.appendChild(host);
+          setTimeout(() => host.remove(), 8000);
+        },
+        args: [{ task: s.task, duration, closes: s.closesDuringSession || 0 }]
+      });
+    } catch {}
+  }
+});
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "yt_metadata") {
     (async () => {
       const settings = await getSync();
       const pause = await getPauseState();
+      const session = await getSessionState();
       const { meta } = msg;
-      const result = await classifyVideo(meta, settings);
+      const result = await classifyVideo(meta, settings, session.active);
 
       await logDecision({
         kind: "youtube",
@@ -373,13 +430,53 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg?.type === "get_dashboard") {
     (async () => {
-      const [stats, pause, settings, meta] = await Promise.all([
+      const [stats, pause, settings, meta, session, insights] = await Promise.all([
         getStats(),
         getPauseState(),
         getSync(),
-        getOrInitInstallMeta()
+        getOrInitInstallMeta(),
+        getSessionState(),
+        getInsightsCache()
       ]);
-      sendResponse({ stats, pause, settings, installedAt: meta.installedAt });
+      sendResponse({ stats, pause, settings, installedAt: meta.installedAt, session, insights });
+    })();
+    return true;
+  }
+
+  if (msg?.type === "start_session") {
+    (async () => {
+      const session = await startSession({
+        durationMs: msg.durationMs || 25 * 60 * 1000,
+        task: msg.task || "Deep work",
+        strictBoost: msg.strictBoost !== false
+      });
+      chrome.alarms.create("session_end", { when: session.endsAt });
+      sendResponse({ ok: true, session });
+    })();
+    return true;
+  }
+
+  if (msg?.type === "end_session") {
+    (async () => {
+      chrome.alarms.clear("session_end");
+      const s = await endSession();
+      sendResponse({ ok: true, ended: s });
+    })();
+    return true;
+  }
+
+  if (msg?.type === "get_insights") {
+    (async () => {
+      const settings = await getSync();
+      const existing = await getInsightsCache();
+      if (!msg.force && existing && Date.now() - existing.generatedAt < 60 * 60 * 1000) {
+        sendResponse({ ok: true, cached: true, insights: existing });
+        return;
+      }
+      const log = await getLog();
+      const result = await generateInsights(log, settings.apiKey);
+      if (!result.error) await setInsightsCache(result);
+      sendResponse({ ok: !result.error, insights: result });
     })();
     return true;
   }
