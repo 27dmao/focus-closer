@@ -73,17 +73,37 @@
         else resolve(null);
       };
 
+      // YouTube watch pages mutate constantly (player, comments, recs).
+      // Without these guards, tryExtract ran on every batch — multiple
+      // querySelectorAll's + a script-tag scan + regex per call. Measurable
+      // CPU on slow machines.
+      let extractInProgress = false;
+      let pendingDebounce = null;
       const tryExtract = () => {
-        const here = getVideoIdFromLocation();
-        if (!here || here.videoId !== videoId) return;
-        const pr = readPlayerResponse();
-        const fromPr = pr && extractFromPlayerResponse(pr);
-        if (fromPr && fromPr.title) return finish(fromPr, "playerResponse");
-        const fromDom = extractFromDom();
-        if (fromDom && fromDom.title) return finish(fromDom, "dom");
+        if (resolved || extractInProgress) return;
+        extractInProgress = true;
+        try {
+          const here = getVideoIdFromLocation();
+          if (!here || here.videoId !== videoId) return;
+          const pr = readPlayerResponse();
+          const fromPr = pr && extractFromPlayerResponse(pr);
+          if (fromPr && fromPr.title) return finish(fromPr, "playerResponse");
+          const fromDom = extractFromDom();
+          if (fromDom && fromDom.title) return finish(fromDom, "dom");
+        } finally {
+          extractInProgress = false;
+        }
       };
 
-      const obs = new MutationObserver(() => tryExtract());
+      const debouncedExtract = () => {
+        if (pendingDebounce || resolved) return;
+        pendingDebounce = setTimeout(() => {
+          pendingDebounce = null;
+          tryExtract();
+        }, 100);
+      };
+
+      const obs = new MutationObserver(debouncedExtract);
       obs.observe(document.documentElement, { childList: true, subtree: true });
       const interval = setInterval(tryExtract, 250);
       const timeout = setTimeout(() => finish(null, "timeout"), METADATA_TIMEOUT_MS);
@@ -92,6 +112,7 @@
         obs.disconnect();
         clearInterval(interval);
         clearTimeout(timeout);
+        if (pendingDebounce) { clearTimeout(pendingDebounce); pendingDebounce = null; }
       }
       tryExtract();
     });
