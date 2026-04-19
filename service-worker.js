@@ -79,6 +79,12 @@ chrome.runtime.onStartup.addListener(async () => {
 // Recover any in-flight tracker session left behind when the SW died.
 trackerRecoverFromSwDeath().catch(() => {});
 
+// Toolbar icon → open the options dashboard in a full tab. (Without this,
+// or a default_popup, clicking the icon does nothing.)
+chrome.action.onClicked.addListener(() => {
+  try { chrome.runtime.openOptionsPage(); } catch (e) { console.warn("[focus-closer] open options failed", e); }
+});
+
 // ─── Tracker wiring: tab focus, window focus, idle, navigation ───────────────
 
 async function activeFocusedTab() {
@@ -1362,11 +1368,18 @@ chrome.commands.onCommand.addListener(async (command) => {
       if (newTab?.id != null) {
         // After the page loads, show the confirmation toast there.
         const tabId = newTab.id;
-        chrome.tabs.onUpdated.addListener(function listener(updatedId, info) {
+        const cleanup = () => { try { chrome.tabs.onUpdated.removeListener(listener); } catch {} };
+        // Fallback timeout: if the tab never reaches "complete" (closed first,
+        // navigation aborted, SW dies and respawns) the listener would otherwise
+        // sit registered for the rest of this SW's life.
+        const fallback = setTimeout(cleanup, 30_000);
+        function listener(updatedId, info) {
           if (updatedId !== tabId || info.status !== "complete") return;
-          chrome.tabs.onUpdated.removeListener(listener);
+          clearTimeout(fallback);
+          cleanup();
           showAllowToastOnTab(tabId, { title: recent.title, channel: recent.channel, reason });
-        });
+        }
+        chrome.tabs.onUpdated.addListener(listener);
       }
       return;
     }

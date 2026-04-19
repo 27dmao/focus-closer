@@ -50,8 +50,7 @@
     "open_in_tab": true
   },
   "action": {
-    "default_title": "Focus Closer",
-    "default_popup": "options/options.html",
+    "default_title": "Focus Closer — open dashboard",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",
