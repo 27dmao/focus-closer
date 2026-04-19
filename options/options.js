@@ -1,4 +1,4 @@
-import { getUsageStats, projectPerModel } from "../lib/usage.js";
+import { getUsageStats, projectPerModel, clearUsageLog } from "../lib/usage.js";
 import { MODELS, DEFAULT_MODEL } from "../lib/pricing.js";
 
 const $ = (id) => document.getElementById(id);
@@ -646,6 +646,12 @@ $("clearCache").addEventListener("click", async () => {
   if (!confirm("Clear the video verdict cache? Next visits will re-classify.")) return;
   const res = await send("clear_video_cache");
   alert(`Removed ${res.removed} cached verdicts.`);
+});
+$("clearUsage")?.addEventListener("click", async () => {
+  if (!confirm("Clear the API usage log? This resets the cost donut and projections.")) return;
+  await clearUsageLog();
+  await renderCostCard();
+  await renderModelCostTable();
 });
 $("replayOnboarding").addEventListener("click", async () => {
   await send("set_settings", { partial: { onboardingComplete: false } });
