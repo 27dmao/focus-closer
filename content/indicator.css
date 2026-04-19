@@ -1,0 +1,30 @@
+/* Focus Closer floating indicator dot — universal, top-frame only.
+   Bottom-right by default. Subtle so it doesn't fight the host page UI.
+   Z-index maxed out; pointer events isolated to the dot itself. */
+
+#__focus_closer_dot__ {
+  position: fixed !important;
+  bottom: 14px !important;
+  right: 14px !important;
+  width: 12px !important;
+  height: 12px !important;
+  border-radius: 50% !important;
+  background: #6c7280;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45),
+              0 0 8px rgba(0, 0, 0, 0.4);
+  cursor: pointer !important;
+  z-index: 2147483647 !important;
+  pointer-events: auto !important;
+  transition: transform 0.18s ease, opacity 0.22s ease, box-shadow 0.18s ease;
+  opacity: 0.85;
+}
+#__focus_closer_dot__:hover {
+  transform: scale(1.35);
+  opacity: 1;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.5),
+              0 0 14px currentColor;
+}
+#__focus_closer_dot__[data-verdict="productive"] { color: #3ecf8e; }
+#__focus_closer_dot__[data-verdict="unproductive"] { color: #ff6b6b; }
+#__focus_closer_dot__[data-verdict="mixed"] { color: #f5a623; }
+#__focus_closer_dot__[data-verdict="unknown"] { color: #6c7280; }

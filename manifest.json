@@ -15,7 +15,8 @@
     "webNavigation",
     "notifications",
     "scripting",
-    "alarms"
+    "alarms",
+    "idle"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -35,6 +36,13 @@
       "matches": ["*://*.linkedin.com/*"],
       "css": ["content/linkedin-hide-badges.css"],
       "run_at": "document_start"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/indicator.js"],
+      "css": ["content/indicator.css"],
+      "run_at": "document_idle",
+      "all_frames": false
     }
   ],
   "options_ui": {

@@ -26,16 +26,175 @@ import {
   REFLECTION_THRESHOLD,
   getPersonalPolicy,
   setPersonalPolicy,
-  clearPersonalPolicy
+  clearPersonalPolicy,
+  getDomainTimeStats,
+  getDomainVerdict,
+  isDomainDismissed,
+  dismissDomainIndicator,
+  resetDismissedDomains,
+  getAllDismissedDomains,
+  isDomainKeepOpen,
+  setDomainKeepOpen,
+  getTrainingMode,
+  startTrainingMode,
+  endTrainingModeEarly,
+  pruneOldBuckets,
+  clearDomainVerdictCache
 } from "./lib/storage.js";
 import { logDecision, getStats, getLog, clearLog, removeLogEntry, getLogEntry, markLogEntryRefuted } from "./lib/logger.js";
 import { classifyLocally } from "./classifier/rules.js";
 import { classifyWithClaude, getDefaultSystemPrompt } from "./classifier/claude.js";
 import { distillPolicy } from "./classifier/policy.js";
 import { parseBrief } from "./classifier/brief.js";
+import { classifyDomain } from "./classifier/domain.js";
+import {
+  onTabActivated as trackerOnTabActivated,
+  onTabUpdated as trackerOnTabUpdated,
+  onTabClosed as trackerOnTabClosed,
+  onWindowFocusChanged as trackerOnWindowFocusChanged,
+  onIdleStateChanged as trackerOnIdleStateChanged,
+  recoverFromSwDeath as trackerRecoverFromSwDeath,
+  getCurrentSnapshot as trackerCurrentSnapshot,
+  getDomainStatus as trackerDomainStatus
+} from "./lib/tracker.js";
 
-chrome.runtime.onInstalled.addListener(() => { getOrInitInstallMeta(); });
-chrome.runtime.onStartup.addListener(() => { getOrInitInstallMeta(); });
+chrome.runtime.onInstalled.addListener(async () => {
+  getOrInitInstallMeta();
+  await startTrainingMode();
+  try { await chrome.storage.local.remove("trainingEndedNotified"); } catch {}
+  try { chrome.idle.setDetectionInterval(30); } catch {}
+  try { chrome.alarms.create("prune_buckets", { periodInMinutes: 24 * 60 }); } catch {}
+  try { chrome.alarms.create("training_check", { periodInMinutes: 5 }); } catch {}
+});
+chrome.runtime.onStartup.addListener(async () => {
+  getOrInitInstallMeta();
+  try { chrome.idle.setDetectionInterval(30); } catch {}
+  try { chrome.alarms.create("prune_buckets", { periodInMinutes: 24 * 60 }); } catch {}
+  try { chrome.alarms.create("training_check", { periodInMinutes: 5 }); } catch {}
+});
+
+// Recover any in-flight tracker session left behind when the SW died.
+trackerRecoverFromSwDeath().catch(() => {});
+
+// ─── Tracker wiring: tab focus, window focus, idle, navigation ───────────────
+
+async function activeFocusedTab() {
+  try {
+    const win = await chrome.windows.getLastFocused({ populate: true, windowTypes: ["normal", "popup"] });
+    if (!win || win.focused === false) return null;
+    const tab = (win.tabs || []).find((t) => t.active);
+    return tab ? { tab, windowId: win.id } : null;
+  } catch { return null; }
+}
+
+chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab.url) await trackerOnTabActivated({ tabId, windowId, url: tab.url });
+  } catch {}
+});
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  // Only fire on URL changes for the *active* tab in the *focused* window.
+  if (!changeInfo.url) return;
+  if (!tab.active) return;
+  try {
+    const win = await chrome.windows.get(tab.windowId);
+    if (!win.focused) return;
+  } catch { return; }
+  await trackerOnTabUpdated({ tabId, windowId: tab.windowId, url: changeInfo.url });
+});
+
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  await trackerOnTabClosed({ tabId });
+});
+
+chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) {
+    await trackerOnWindowFocusChanged({ focusedWindowId: -1, focusedTab: null });
+    return;
+  }
+  try {
+    const win = await chrome.windows.get(windowId, { populate: true });
+    const tab = (win.tabs || []).find((t) => t.active);
+    await trackerOnWindowFocusChanged({ focusedWindowId: windowId, focusedTab: tab });
+  } catch {}
+});
+
+chrome.idle.onStateChanged.addListener(async (state) => {
+  const focused = await activeFocusedTab();
+  await trackerOnIdleStateChanged({
+    state,
+    focusedTab: focused?.tab || null,
+    focusedWindowId: focused?.windowId || null
+  });
+});
+
+// ─── Universal domain classification on every committed navigation ───────────
+
+const _classifyInflight = new Set(); // hostname-level dedup
+
+async function classifyDomainAndMaybeClose({ tabId, hostname, pathname, url, title }) {
+  if (!hostname || _classifyInflight.has(hostname)) return;
+  _classifyInflight.add(hostname);
+  try {
+    const settings = await getSync();
+    const policy = await getPersonalPolicy();
+    const history = await getFeedbackHistory();
+
+    const result = await classifyDomain({
+      hostname, pathname, title: title || "", description: "",
+      settings, policy, history
+    });
+
+    // Auto-close gating: only on high-confidence unproductive verdicts, only
+    // when not in training mode, never for keep-open overrides, never for
+    // YouTube (handled by per-video classifier).
+    if (result.verdict !== "unproductive") return;
+    if (result.source === "blocklist") return; // already handled by onBeforeNavigate
+    if (hostname === "youtube.com" || hostname.endsWith(".youtube.com")) return;
+    const training = await getTrainingMode();
+    if (training.active) return;
+    if (await isDomainKeepOpen(hostname)) return;
+    if (typeof result.confidence === "number" && result.confidence < 0.85) return;
+    if (tabId == null) return;
+
+    await logDecision({
+      kind: "domain_close",
+      hostname,
+      url,
+      verdict: "unproductive",
+      reason: result.reason || "",
+      source: `domain_${result.source || "claude"}`
+    });
+
+    await closeAndNotify(tabId, {
+      kind: "domain",
+      hostname,
+      url,
+      reason: `"${hostname}" classified unproductive: ${result.reason || ""}`
+    });
+  } finally {
+    _classifyInflight.delete(hostname);
+  }
+}
+
+chrome.webNavigation.onCommitted.addListener(async (details) => {
+  if (details.frameId !== 0) return;
+  const parsed = parseUrl(details.url);
+  if (!parsed) return;
+  const { hostname, pathname } = parsed;
+  if (!hostname) return;
+  // Skip our own pages and chrome internals
+  if (details.url.startsWith("chrome://") || details.url.startsWith("chrome-extension://")) return;
+  // Best-effort title fetch
+  let title = "";
+  try {
+    const tab = await chrome.tabs.get(details.tabId);
+    title = tab.title || "";
+  } catch {}
+  classifyDomainAndMaybeClose({ tabId: details.tabId, hostname, pathname, url: details.url, title }).catch(() => {});
+});
 
 // Run a policy reflection if the user has accumulated enough new feedback
 // since the last reflection. Idempotent and cheap to call. Always returns
@@ -197,6 +356,7 @@ function popupRendererSource() {
 
     const isYt = detail.kind === "youtube";
     const isUserFlag = detail.kind === "user_flag";
+    const isDomain = detail.kind === "domain";
     const bg = "#1e1e1e";
     const accent = isUserFlag ? "#f57c00" : (isYt ? "#c0392b" : "#8e24aa");
 
@@ -228,7 +388,10 @@ function popupRendererSource() {
 
     const header = document.createElement("div");
     header.style.cssText = "font-weight:700;letter-spacing:0.4px;margin-bottom:4px;font-size:10px;opacity:0.8;text-transform:uppercase;";
-    header.textContent = isUserFlag ? "Flagged as distracting" : (isYt ? "Closed YouTube video" : `Closed ${detail.matchedEntry || detail.hostname}`);
+    header.textContent = isUserFlag ? "Flagged as distracting"
+      : isYt ? "Closed YouTube video"
+      : isDomain ? `Closed ${detail.hostname}`
+      : `Closed ${detail.matchedEntry || detail.hostname}`;
     card.appendChild(header);
 
     const body = document.createElement("div");
@@ -284,6 +447,10 @@ function popupRendererSource() {
       if (detail.channel) {
         actions.appendChild(mkBtn(`Always allow "${detail.channel}"`, { action: "always_allow_channel", channel: detail.channel, videoId: detail.videoId, url: detail.url }));
       }
+    } else if (isDomain) {
+      actions.appendChild(mkBtn("Keep open this time", { action: "keep_domain_open", hostname: detail.hostname, url: detail.url, durationMs: 60 * 60 * 1000 }, true));
+      actions.appendChild(mkBtn("Keep open today", { action: "keep_domain_open", hostname: detail.hostname, url: detail.url, durationMs: 24 * 60 * 60 * 1000 }));
+      actions.appendChild(mkBtn("Always keep open", { action: "keep_domain_open", hostname: detail.hostname, url: detail.url, durationMs: null }));
     } else {
       const entry = detail.matchedEntry || detail.hostname;
       actions.appendChild(mkBtn("Reopen 60s", { action: "reopen_once", entry, url: detail.url }, true));
@@ -375,7 +542,35 @@ async function closeAndNotify(tabId, detail) {
   await showPopup(tabId, detail);
 }
 
+async function notifyTrainingEnded() {
+  try {
+    await chrome.notifications.create({
+      type: "basic",
+      iconUrl: chrome.runtime.getURL("icons/icon-128.png"),
+      title: "Training mode ended",
+      message: "Focus Closer will now auto-close unproductive sites. You can keep any site open from the recovery popup."
+    });
+  } catch {}
+}
+
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === "prune_buckets") {
+    try { await pruneOldBuckets(); } catch (e) { console.warn("[focus-closer] prune failed", e); }
+    return;
+  }
+  if (alarm.name === "training_check") {
+    try {
+      const t = await getTrainingMode();
+      if (t && t.endsAt && !t.active) {
+        const flag = await chrome.storage.local.get("trainingEndedNotified");
+        if (!flag.trainingEndedNotified) {
+          await notifyTrainingEnded();
+          await chrome.storage.local.set({ trainingEndedNotified: true });
+        }
+      }
+    } catch (e) { console.warn("[focus-closer] training_check failed", e); }
+    return;
+  }
   if (alarm.name !== "session_end") return;
   const s = await endSession();
   if (!s) return;
@@ -496,6 +691,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           list.push(p.channel);
           await setSync({ channelBlocklist: list });
         }
+      } else if (p.action === "keep_domain_open") {
+        if (p.hostname) await setDomainKeepOpen(p.hostname, p.durationMs ?? null);
+        if (p.url) await chrome.tabs.create({ url: p.url });
       }
       sendResponse({ ok: true });
     })();
@@ -504,7 +702,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg?.type === "get_dashboard") {
     (async () => {
-      const [stats, settings, meta, session, log, policy, history, unreflected] = await Promise.all([
+      const [stats, settings, meta, session, log, policy, history, unreflected, timeStats, training, snapshot] = await Promise.all([
         getStats(),
         getSync(),
         getOrInitInstallMeta(),
@@ -512,7 +710,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         getLog(),
         getPersonalPolicy(),
         getFeedbackHistory(),
-        getUnreflectedCount()
+        getUnreflectedCount(),
+        getDomainTimeStats(),
+        getTrainingMode(),
+        trackerCurrentSnapshot()
       ]);
       const heatmap = buildHourHeatmap(log);
       const feedbackCounts = {
@@ -520,7 +721,84 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         allows: history.allows?.length || 0,
         unreflected
       };
-      sendResponse({ stats, settings, installedAt: meta.installedAt, session, heatmap, policy, feedbackCounts });
+      // Resolve verdicts for all domains in timeStats so the dashboard can color them.
+      // Read from cache only — don't trigger Claude calls just to render the dashboard.
+      const domainVerdicts = {};
+      const allHosts = new Set([
+        ...Object.keys(timeStats.totals || {}),
+        ...Object.values(timeStats.buckets || {}).flatMap((d) => Object.keys(d))
+      ]);
+      for (const host of allHosts) {
+        if (host === "youtube.com" || host.endsWith(".youtube.com")) {
+          domainVerdicts[host] = "mixed";
+          continue;
+        }
+        if (isWorkWhitelisted(host)) { domainVerdicts[host] = "productive"; continue; }
+        const cached = await getDomainVerdict(host);
+        if (cached?.verdict) domainVerdicts[host] = cached.verdict;
+      }
+      sendResponse({
+        stats, settings, installedAt: meta.installedAt, session, heatmap, policy, feedbackCounts,
+        timeStats, domainVerdicts, training, snapshot
+      });
+    })();
+    return true;
+  }
+
+  if (msg?.type === "get_indicator_state") {
+    (async () => {
+      const hostname = msg.hostname || "";
+      if (!hostname) { sendResponse({ ok: false }); return; }
+      const dismissed = await isDomainDismissed(hostname);
+      const status = await trackerDomainStatus(hostname);
+      const stats = await getDomainTimeStats();
+      const today = stats.buckets[(new Date().toISOString().slice(0, 10))] || {};
+      const todayMs = today[hostname] || 0;
+      const totalMs = stats.totals[hostname]?.totalMs || 0;
+      sendResponse({
+        ok: true,
+        hostname,
+        dismissed,
+        verdict: status.verdict,
+        reason: status.reason,
+        confidence: status.confidence,
+        todayMs,
+        totalMs
+      });
+    })();
+    return true;
+  }
+
+  if (msg?.type === "dismiss_indicator") {
+    (async () => {
+      if (msg.hostname) await dismissDomainIndicator(msg.hostname);
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (msg?.type === "reset_dismissed_domains") {
+    (async () => { await resetDismissedDomains(); sendResponse({ ok: true }); })();
+    return true;
+  }
+
+  if (msg?.type === "end_training_mode") {
+    (async () => { await endTrainingModeEarly(); sendResponse({ ok: true }); })();
+    return true;
+  }
+
+  if (msg?.type === "clear_domain_verdict_cache") {
+    (async () => {
+      const removed = await clearDomainVerdictCache();
+      sendResponse({ ok: true, removed });
+    })();
+    return true;
+  }
+
+  if (msg?.type === "keep_domain_open") {
+    (async () => {
+      if (msg.hostname) await setDomainKeepOpen(msg.hostname, msg.durationMs ?? null);
+      sendResponse({ ok: true });
     })();
     return true;
   }

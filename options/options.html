@@ -59,6 +59,7 @@
   <div class="status" id="statusArea">
     <span class="status-dot" id="statusDot"></span>
     <span id="statusText">Active</span>
+    <span id="livePill" class="live-pill hidden"></span>
   </div>
 </header>
 
@@ -163,6 +164,55 @@
       <a href="#" id="viewPromptLink" class="policy-link">View system prompt →</a>
       <span id="reflectStatus" class="save-status"></span>
     </div>
+  </div>
+
+  <div id="trainingBanner" class="card training-banner hidden">
+    <div>
+      <div class="training-title">Training mode — auto-close paused</div>
+      <div class="training-sub" id="trainingSub">For the first 24h after install the extension only SHOWS the verdict dot on every site. After training ends, unproductive sites auto-close.</div>
+    </div>
+    <button class="btn-ghost" id="endTrainingBtn">End training now</button>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-header">
+        <h3>Productive vs Unproductive</h3>
+        <span class="card-sub">today's split (active time)</span>
+      </div>
+      <div class="universal-split">
+        <svg class="universal-donut" viewBox="0 0 120 120" aria-hidden="true">
+          <circle cx="60" cy="60" r="50" fill="none" stroke="#1e222b" stroke-width="14" />
+          <circle id="universalDonutProductive" cx="60" cy="60" r="50" fill="none" stroke="#3ecf8e" stroke-width="14"
+                  stroke-dasharray="0 999" transform="rotate(-90 60 60)" stroke-linecap="butt" />
+          <circle id="universalDonutUnproductive" cx="60" cy="60" r="50" fill="none" stroke="#ff6b6b" stroke-width="14"
+                  stroke-dasharray="0 999" transform="rotate(-90 60 60)" stroke-linecap="butt" />
+          <text id="universalDonutPct" class="universal-donut-pct" x="60" y="66" text-anchor="middle">—</text>
+        </svg>
+        <div class="universal-meta">
+          <div class="universal-row"><span class="dot prod"></span><span class="lbl">Productive</span><span id="universalProdMin" class="val">—</span></div>
+          <div class="universal-row"><span class="dot unprod"></span><span class="lbl">Unproductive</span><span id="universalUnprodMin" class="val">—</span></div>
+          <div class="universal-row"><span class="dot mixed"></span><span class="lbl">Mixed / Unknown</span><span id="universalMixedMin" class="val">—</span></div>
+          <div class="universal-tot" id="universalTotal">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h3>Top time-spent domains today</h3>
+        <span class="card-sub">color-coded by verdict</span>
+      </div>
+      <ul id="topDomainsList" class="top-domains"></ul>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h3>Productive vs Unproductive — last 14 days</h3>
+      <span class="card-sub">stacked minutes per day</span>
+    </div>
+    <div id="universalTimeSeries" class="universal-series"></div>
   </div>
 
   <div class="grid-2">
@@ -341,8 +391,11 @@
       <button id="clearCache" class="btn-ghost">Clear verdict cache</button>
       <button id="clearLog" class="btn-ghost">Clear decision log</button>
       <button id="clearUsage" class="btn-ghost">Clear usage log</button>
+      <button id="clearDomainCache" class="btn-ghost">Clear domain verdict cache</button>
+      <button id="resetDismissed" class="btn-ghost">Reset dismissed indicators</button>
       <button id="replayOnboarding" class="btn-ghost">Replay onboarding</button>
     </div>
+    <div class="help">"Domain verdict cache" stores Claude's productive/unproductive judgment per hostname. Clearing forces re-classification on next visit. "Dismissed indicators" is the per-domain list of dots you clicked away.</div>
   </div>
 </section>
 
